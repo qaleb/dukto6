@@ -1,0 +1,45 @@
+<RCC>
+    <qresource prefix="/">
+        <file>src/assets/icons/Accept.svg</file>
+        <file>src/assets/icons/AndroidLogo.png</file>
+        <file>src/assets/icons/AppleLogo.png</file>
+        <file>src/assets/icons/AppleLogo.svg</file>
+        <file>src/assets/icons/ArrowBack.png</file>
+        <file>src/assets/icons/ArrowBack.svg</file>
+        <file>src/assets/icons/ArrowUp.svg</file>
+        <file>src/assets/icons/BlackberryLogo.png</file>
+        <file>src/assets/icons/BottomShadow.png</file>
+        <file>src/assets/icons/Cancel.svg</file>
+        <file>src/assets/icons/dukto.png</file>
+        <file>src/assets/icons/DuktoMetroIcon.png</file>
+        <file>src/assets/icons/DuktoMetroIcon.svg</file>
+        <file>src/assets/icons/file-fill.svg</file>
+        <file>src/assets/icons/file-fill-colored.png</file>
+        <file>src/assets/icons/file-fill-colored.svg</file>
+        <file>src/assets/icons/folder-fill.svg</file>
+        <file>src/assets/icons/folder-fill-colored.png</file>
+        <file>src/assets/icons/folder-fill-colored.svg</file>
+        <file>src/assets/icons/FolderUp.svg</file>
+        <file>src/assets/icons/IosLogo.png</file>
+        <file>src/assets/icons/IpLogo.png</file>
+        <file>src/assets/icons/LinuxLogo.png</file>
+        <file>src/assets/icons/OpenFolder.svg</file>
+        <file>src/assets/icons/PanelGradient.png</file>
+        <file>src/assets/icons/PcLogo.png</file>
+        <file>src/assets/icons/RecentFile.png</file>
+        <file>src/assets/icons/RecentFiles.png</file>
+        <file>src/assets/icons/RecentText.png</file>
+        <file>src/assets/icons/SettingsDark.svg</file>
+        <file>src/assets/icons/ShowIpDark.svg</file>
+        <file>src/assets/icons/SmartphoneLogo.png</file>
+        <file>src/assets/icons/SwipeDown.png</file>
+        <file>src/assets/icons/SwipeUp.png</file>
+        <file>src/assets/icons/SymbianLogo.png</file>
+        <file>src/assets/icons/TileGradient.png</file>
+        <file>src/assets/icons/TopShadow.png</file>
+        <file>src/assets/icons/UnknownLogo.png</file>
+        <file>src/assets/icons/WindowsLogo.png</file>
+        <file>src/assets/icons/WindowsLogo.svg</file>
+        <file>src/assets/icons/WindowsPhoneLogo.png</file>
+    </qresource>
+</RCC>
