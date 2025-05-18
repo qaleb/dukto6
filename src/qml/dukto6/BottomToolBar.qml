@@ -1,6 +1,7 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Controls.impl
 
 Item {
     id: bottomToolBar
@@ -34,7 +35,7 @@ Item {
         height: parent.height
         color: theme.color2
 
-        Image {
+        ColorImage {
             id: openFolderIcon
             anchors {
                 top: parent.top
@@ -45,7 +46,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/OpenFolder.svg"
-            // color: "#fff"
+            color: "#fff"
             visible: (Qt.platform.os === "windows" || Qt.platform.os === "linux" || Qt.platform.os === "osx")
             MouseArea {
                 anchors.fill: parent
@@ -84,7 +85,7 @@ Item {
             currentFolder: guiBehind.currentPath
         }
 
-        Image {
+        ColorImage {
             id: showIpIcon
             anchors.top: parent.top
             anchors.topMargin: 5
@@ -92,7 +93,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/ShowIpDark.svg"
-            // color: "#fff"
+            color: "#fff"
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
@@ -115,7 +116,7 @@ Item {
             color: "#fff"
         }
 
-        Image {
+        ColorImage {
             id: settingsIcon
             anchors.top: parent.top
             anchors.topMargin: 5
@@ -124,7 +125,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/SettingsDark.svg"
-            // color: "#fff"
+            color: "#fff"
 
             MouseArea {
                 anchors.fill: parent
@@ -145,7 +146,7 @@ Item {
             color: "#fff"
         }
 
-        Image {
+        ColorImage {
             id: moreIcon
             anchors.top: parent.top
             anchors.topMargin: 10
@@ -154,7 +155,7 @@ Item {
             width: 20; height: 20
             source: "qrc:/src/assets/SwipeUp.png"
             opacity: 1.0
-            // color: "#fff"
+            color: "#fff"
         }
 
         MouseArea {

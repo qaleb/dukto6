@@ -1,5 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.impl
 import QtQuick.Dialogs
 
 Rectangle {
@@ -35,12 +36,12 @@ Rectangle {
         onClicked: forceActiveFocus() // To remove focus from textInputs when user clicks outside
     }
 
-    Image {
+    ColorImage {
         id: backIcon
         sourceSize.width: 40
         sourceSize.height: 40
         source: "qrc:/src/assets/ArrowBack.svg"
-        // color: "gray"
+        color: "gray"
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.topMargin: 5

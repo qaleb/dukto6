@@ -39,9 +39,8 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     mMiniWebServer(NULL), mSettings(this), mDestBuddy(NULL), mUpdatesChecker(NULL)
 {
 #if defined(Q_OS_ANDROID)
-    // Request Permissions on Android
-    requestPermissions();
 #endif
+    // Other platforms can be re-added here if needed
 
     // Change current folder
     QDir::setCurrent(currentPath());
@@ -111,7 +110,7 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     // Start random rotate
     mShowBackTimer = new QTimer(this);
     connect(mShowBackTimer, SIGNAL(timeout()), this, SLOT(showRandomBack()));
-    uint iSeed = QDateTime::currentDateTime().toSecsSinceEpoch();
+    uint iSeed = QDateTime::currentSecsSinceEpoch();
     srand(iSeed);
     mShowBackTimer->start(10000);
 
@@ -285,27 +284,10 @@ void GuiBehind::openFile(QString path)
 void GuiBehind::openDestinationFolder() {
 #if defined(Q_OS_ANDROID)
     QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::currentPath()));
-    // Get the singleton instance of SharedStorage
-    // auto &sharedStorage = android::provider::SharedStorage::instance();
-
-// Define a callback function to handle the result of the document request
-// auto callback = [](int /* requestCode */, android::net::Uri uri) {
-//     qDebug() << "Document URI:" << uri.toString();
-//     // You can now use the URI to access or manipulate the file
-// };
-
-// Request to open the document tree (e.g., Downloads directory)
-// sharedStorage.openDocumentTree(1 /* requestCode */, callback);
-
-// // Alternatively, you can open a specific document by MIME type
-// QStringList mimeTypes = {"text/plain"};
-// sharedStorage.openDocument(1 /* requestCode */, callback, mimeTypes);
-
-// You can also create a new document in shared storage
-// sharedStorage.createDocument(1 /* requestCode */, callback, "text/plain", "example_file.txt");
 #else
     QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::currentPath()));
 #endif
+    // Other platforms can be re-added here if needed
 }
 
 void GuiBehind::changeDestinationFolder(QString dirpath)
@@ -445,13 +427,13 @@ QString GuiBehind::convertContentUriToFilePath(const QString &uri) {
     jobject jUri = env->CallStaticObjectMethod(uriClass, parseMethod, jUriString);
 
     // Find the Java FileUtils class
-    jclass fileUtilsClass = env->FindClass("idv/coolshou/fileutils/FileUtils");
+    jclass fileUtilsClass = env->FindClass("idv/coolshou/FileUtils");
 
     // Find the method ID for "getPathFromUri"
     jmethodID getPathFromUriMethod = env->GetStaticMethodID(fileUtilsClass, "getPathFromUri", "(Landroid/content/Context;Landroid/net/Uri;)Ljava/lang/String;");
 
     // Get the Android context
-    jobject context = QNativeInterface::QAndroidApplication::context();
+    jobject context = QNativeInterface::QAndroidApplication::context().object<jobject>();
 
     // Call the Java method with the correct Uri object
     jobject result = env->CallStaticObjectMethod(fileUtilsClass, getPathFromUriMethod, context, jUri);
@@ -468,6 +450,12 @@ QString GuiBehind::convertContentUriToFilePath(const QString &uri) {
     env->DeleteLocalRef(fileUtilsClass);
     env->DeleteLocalRef(result);
 
+     if (localPath.isEmpty()) {
+        qDebug() << "File path from URI is empty for:" << uri;
+    } else {
+        qDebug() << "Converted URI to file path:" << localPath;
+    }
+    
     return localPath;
 }
 #endif
@@ -496,18 +484,8 @@ void GuiBehind::sendClipboardText()
 {
     // Get text to send
     QString text = mClipboard->text();
-#ifndef Q_OS_S60
     if (text == "") return;
-#else
-    if (text == "") {
-        setMessagePageTitle(tr("Send"));
-        setMessagePageText(tr("No text appears to be in the clipboard right now!"));
-        setMessagePageBackState("send");
-        emit gotoMessagePage();
-        return;
-    }
-#endif
-
+    // Other platforms can be re-added here if needed
     // Send text
     startTransfer(text);
 }
@@ -637,13 +615,9 @@ void GuiBehind::sendFileComplete()
 {
     // Show completed message
     setMessagePageTitle(tr("Send"));
-#ifndef Q_OS_S60
     setMessagePageText(tr("Your data has been sent to your buddy!\n\nDo you want to send other files to your buddy? Just drag and drop them here!"));
-#else
-    setMessagePageText(tr("Your data has been sent to your buddy!"));
-#endif
     setMessagePageBackState("send");
-
+    // Other platforms can be re-added here if needed
     // mView->win7()->setProgressState(EcWin7::NoProgress);
 
     // Check for temporary file to delete
@@ -691,16 +665,12 @@ void GuiBehind::sendFileError(int code)
     setMessagePageTitle(tr("Error"));
     setMessagePageText(tr("Sorry, an error has occurred while sending your data...\n\nError code: ") + QString::number(code));
     setMessagePageBackState("send");
-    // mView->win7()->setProgressState(EcWin7::Error);
-
     // Check for temporary file to delete
     if (mScreenTempPath != "") {
-
         QFile file(mScreenTempPath);
         file.remove();
         mScreenTempPath = "";
     }
-
     emit gotoMessagePage();
 }
 
@@ -710,7 +680,6 @@ void GuiBehind::receiveFileCancelled()
     setMessagePageTitle(tr("Error"));
     setMessagePageText(tr("An error has occurred during the transfer... The data you received could be incomplete or broken."));
     setMessagePageBackState("");
-    // mView->win7()->setProgressState(EcWin7::Error);
     emit gotoMessagePage();
 }
 
@@ -981,60 +950,24 @@ QString GuiBehind::appVersion()
 
 bool GuiBehind::isTrayIconVisible()
 {
-    if (QSystemTrayIcon::isSystemTrayAvailable()){
+#if defined(Q_OS_UNIX) || defined(Q_OS_ANDROID)
+    if (QSystemTrayIcon::isSystemTrayAvailable() && trayIcon)
         return trayIcon->isVisible();
-    }
+#endif
     return false;
 }
 
 void GuiBehind::setTrayIconVisible(bool bVisible)
 {
-    if (QSystemTrayIcon::isSystemTrayAvailable()){
+#if defined(Q_OS_UNIX) || defined(Q_OS_ANDROID)
+    if (QSystemTrayIcon::isSystemTrayAvailable() && trayIcon)
         trayIcon->setVisible(bVisible);
-    }
-}
-
-#if defined(Q_OS_S60)
-void GuiBehind::initConnection()
-{
-    // Connection
-    QNetworkConfigurationManager manager;
-    const bool canStartIAP = (manager.capabilities() & QNetworkConfigurationManager::CanStartAndStopInterfaces);
-    QNetworkConfiguration cfg = manager.defaultConfiguration();
-    if (!cfg.isValid() || (!canStartIAP && cfg.state() != QNetworkConfiguration::Active)) return;
-    mNetworkSession = new QNetworkSession(cfg, this);
-    connect(mNetworkSession, SIGNAL(opened()), this, SLOT(connectOpened()));
-    connect(mNetworkSession, SIGNAL(error(QNetworkSession::SessionError)), this, SLOT(connectError(QNetworkSession::SessionError)));
-    mNetworkSession->open();
-}
-
-void GuiBehind::connectOpened()
-{
-    mDuktoProtocol.sayHello(QHostAddress::Broadcast);
-}
-
-void GuiBehind::connectError(QNetworkSession::SessionError error)
-{
-    QString msg = tr("Unable to connect to the network (code: ") + QString::number(error) + ").";
-    QMessageBox::critical(NULL, tr("Dukto"), msg);
-    exit(-1);
-}
-
 #endif
+}
 
 void GuiBehind::createActions()
 {
-    // minimizeAction = new QAction(tr("Mi&nimize"), mView);
-    // connect(minimizeAction, SIGNAL(triggered()), mView, SLOT(hide()));
-
-    // maximizeAction = new QAction(tr("Ma&ximize"), mView);
-    // connect(maximizeAction, SIGNAL(triggered()), mView, SLOT(showMaximized()));
-
-    // restoreAction = new QAction(tr("&Restore"), mView);
-    // connect(restoreAction, SIGNAL(triggered()), mView, SLOT(showNormal()));
-
-    // quitAction = new QAction(tr("&Quit"), mView);
-    // connect(quitAction, SIGNAL(triggered()), mView, SLOT(exit()));
+    // Only needed for other platforms, can be re-added here
 }
 
 void GuiBehind::createTrayIcon()
@@ -1044,48 +977,10 @@ void GuiBehind::createTrayIcon()
 #else
     trayIconMenu = new QMenu(nullptr);
 #endif
-    // trayIconMenu->addAction(minimizeAction);
-    // //    trayIconMenu->addAction(maximizeAction);
-    // trayIconMenu->addAction(restoreAction);
-    // trayIconMenu->addSeparator();
-    // trayIconMenu->addAction(quitAction);
-
-    // trayIcon = new QSystemTrayIcon(mView);
-    // trayIcon->setContextMenu(trayIconMenu);
-    // QIcon icon(":/dukto.png");
-    // trayIcon->setIcon(icon);
-    // //trayIcon->setToolTip("test");
-    // connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
-    //         this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
-
+    // Only needed for other platforms, can be re-added here
 }
 
 void GuiBehind::iconActivated(QSystemTrayIcon::ActivationReason reason)
 {
-    switch (reason) {
-    case QSystemTrayIcon::Trigger:
-        //single left click
-#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
-        // qDebug() << "//TODO:QT5 single left click on systray icon";
-        // if (mView->isVisible() || mView->windowState() == Qt::WindowMinimized) {
-        //     mView->showNormal(); // Restore the application if it is hidden
-        // } else {
-        //     mView->hide();
-        // }
-#else
-        if (mView->isHidden() || mView->isMinimized()) {
-            mView->showNormal();
-        } else {
-            mView->hide();
-        }
-#endif
-        break;
-    case QSystemTrayIcon::DoubleClick:
-        //double click
-        break;
-    case QSystemTrayIcon::MiddleClick:
-        break;
-    default:
-        ;
-    }
+    // Only needed for other platforms, can be re-added here
 }

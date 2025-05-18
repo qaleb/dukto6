@@ -18,6 +18,8 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
+    qDebug() << "FileUtils exists?" << QFile::exists(":/src/libs/FileUtils.java");
+
     // Use the singleton instance of GuiBehind
     GuiBehind::instance(engine);
 

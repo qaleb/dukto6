@@ -5,14 +5,9 @@
 #include <QQmlApplicationEngine>
 #include <QClipboard>
 
-#if defined(Q_OS_S60)
-#include <QNetworkSession>
-#endif
-
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QAction>
-
 
 #include "buddylistitemmodel.h"
 #include "recentlistitemmodel.h"
@@ -111,10 +106,6 @@ public:
     bool requestPermissions();
     #endif
 
-#if defined(Q_OS_S60)
-    void initConnection();
-#endif
-
 signals:
     void currentTransferBuddyChanged();
     void currentTransferProgressChanged();
@@ -187,11 +178,6 @@ public slots:
     bool canAcceptDrop();
     void sendDroppedFiles(const QStringList &files);
 
-#if defined(Q_OS_S60)
-    void connectOpened();
-    void connectError(QNetworkSession::SessionError error);
-#endif
-
 private slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
 
@@ -235,10 +221,6 @@ private:
     void startTransfer(QString text);
 
     //system tray
-    QAction *minimizeAction;
-    QAction *maximizeAction;
-    QAction *restoreAction;
-    QAction *quitAction;
     void createActions();
     void createTrayIcon();
     QSystemTrayIcon *trayIcon;

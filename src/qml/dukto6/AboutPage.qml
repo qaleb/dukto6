@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Item {
     clip: true
@@ -58,8 +58,8 @@ Item {
             x: 25
             y: 120 + 165
             font.pixelSize: 32
-            text: "QT6: <a href=\"https://github.com/qaleb/qt6-file-share-app\">https://github.com/qaleb/dukto6</a>"
-            onLinkActivated: handleLinkActivated('https://github.com/qaleb/qt6-file-share-app')
+            text: "QT6: <a href=\"https://github.com/qaleb/dukto6\">https://github.com/qaleb/dukto6</a>"
+            onLinkActivated: handleLinkActivated('https://github.com/qaleb/dukto6')
             HoverHandler {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 cursorShape: Qt.PointingHandCursor

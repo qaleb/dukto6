@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto6 VERSION 0.1 LANGUAGES CXX)
+project(dukto6 VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,34 +71,53 @@ qt_add_qml_module(appdukto6
         src/qml/dukto6/UpdatesBox.qml
 )
 
+qt_generate_deploy_qml_app_script(
+    TARGET appdukto6
+    OUTPUT_SCRIPT deploy_script
+)
+
+install(SCRIPT ${deploy_script})
+
 qt_add_resources(appdukto6 "assets"
     PREFIX "/"
     FILES
         # Fonts
+        src/assets/KGLikeASkyscraper.ttf
         src/assets/Klill-Light.ttf
         src/assets/LiberationSans-Regular.ttf
-        src/assets/KGLikeASkyscraper.ttf
 
         # Images and Icons
-        src/assets/dukto.png
-        src/assets/TileGradient.png
+        src/assets/Accept.svg
+        src/assets/AndroidLogo.png
+        src/assets/AppleLogo.png
+        src/assets/ArrowBack.svg
+        src/assets/BlackberryLogo.png
         src/assets/BottomShadow.png
+        src/assets/Cancel.svg
+        src/assets/dukto.png
         src/assets/DuktoMetroIcon.svg
+        src/assets/file-fill-colored.svg
+        src/assets/folder-fill-colored.svg
+        src/assets/FolderUp.svg
+        src/assets/IosLogo.png
         src/assets/IpLogo.png
         src/assets/LinuxLogo.png
         src/assets/OpenFolder.svg
+        src/assets/PanelGradient.png
         src/assets/PcLogo.png
+        src/assets/RecentFile.png
+        src/assets/RecentFiles.png
+        src/assets/RecentText.png
         src/assets/SettingsDark.svg
         src/assets/ShowIpDark.svg
-        src/assets/UnknownLogo.png
-        src/assets/Accept.svg
-        src/assets/ArrowBack.svg
-        src/assets/Cancel.svg
-        src/assets/FolderUp.svg
-        src/assets/PanelGradient.png
-        src/assets/SwipeUp.png
-        src/assets/TopShadow.png
+        src/assets/SmartphoneLogo.png
         src/assets/SwipeDown.png
+        src/assets/SwipeUp.png
+        src/assets/SymbianLogo.png
+        src/assets/TileGradient.png
+        src/assets/TopShadow.png
+        src/assets/UnknownLogo.png
+        src/assets/WindowsLogo.png
 )
 
 set_target_properties(appdukto6 PROPERTIES
@@ -122,9 +141,46 @@ target_link_libraries(appdukto6
     PRIVATE Qt6::Qml
 )
 
+# Optimize and strip binary for Linux
+if (UNIX AND NOT APPLE)
+    add_custom_command(TARGET appdukto6 POST_BUILD
+        COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:appdukto6>
+        COMMENT "Stripping binary to reduce size"
+    )
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS appdukto6
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Declare basic package info
+set(CPACK_PACKAGE_NAME    "Dukto")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Caleb <drmaangi@gmail.com>")
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "Dukto - Simple file transfer tool for LAN")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/qaleb/dukto6")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+
+# Choose DEB as the generator
+set(CPACK_GENERATOR "DEB")
+
+# Optional: let dpkg-shlibdeps auto-generate runtime dependencies
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+
+# Optional: specify license file for CPack
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+
+# Include all CPack functionality
+include(CPack)
+
+# Linux desktop integration: install .desktop file and icons (does not affect Android, Windows, or macOS)
+install(FILES debian/dukto.png DESTINATION share/icons/hicolor/128x128/apps RENAME dukto.png)
+install(FILES debian/dukto.png DESTINATION share/icons/hicolor/256x256/apps RENAME dukto.png)
+install(FILES debian/dukto.desktop DESTINATION share/applications RENAME dukto.desktop)
+
+# Optionally, also install icon to /usr/share/pixmaps for compatibility
+install(FILES debian/dukto.png DESTINATION share/pixmaps RENAME dukto.png)

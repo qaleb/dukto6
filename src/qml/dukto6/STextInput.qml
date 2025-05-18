@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 TextInput {
     font.family: duktofontsmall.name

@@ -1,4 +1,5 @@
 //  Color manipulation utilities
+.pragma library
 
 //  creates color value from hue, saturation, brightness, alpha
 function hsba(h, s, b, a) {

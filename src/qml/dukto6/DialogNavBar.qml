@@ -1,5 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.impl
 import QtQuick.Dialogs
 
 Item {
@@ -33,7 +34,7 @@ Item {
         height: parent.height
         color: theme.color2
 
-        Image {
+        ColorImage {
             id: cancelIcon
             anchors {
                 top: parent.top
@@ -44,7 +45,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/Cancel.svg"
-            // color: theme.color6
+            color: theme.color6
             MouseArea {
                 anchors.fill: parent
                 onClicked: back()
@@ -65,7 +66,7 @@ Item {
             color: theme.color6
         }
 
-        Image {
+        ColorImage {
             id: acceptIcon
             anchors {
                 top: parent.top
@@ -75,7 +76,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/Accept.svg"
-            // color: theme.color6
+            color: theme.color6
             MouseArea {
                 anchors.fill: parent
                 onClicked: acceptFolder();
@@ -99,7 +100,7 @@ Item {
             visible: true
         }
 
-        Image {
+        ColorImage {
             id: upIcon
             anchors {
                 top: parent.top
@@ -111,7 +112,7 @@ Item {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/FolderUp.svg"
-            // color: theme.color6
+            color: theme.color6
 
             MouseArea {
                 anchors.fill: parent
@@ -133,7 +134,7 @@ Item {
             color: theme.color6
         }
 
-        Image {
+        ColorImage {
             id: moreIcon
             anchors.top: parent.top
             anchors.topMargin: 10
@@ -142,7 +143,7 @@ Item {
             width: 20; height: 20
             source: "qrc:/src/assets/SwipeUp.png"
             opacity: 1.0
-            // color: theme.color6
+            color: theme.color6
         }
 
         MouseArea {

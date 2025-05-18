@@ -1,5 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.impl
 
 Rectangle {
     id: messagePage
@@ -48,12 +49,12 @@ Rectangle {
             source: "qrc:/src/assets/PanelGradient.png"
         }
 
-        Image {
+        ColorImage {
             id: backIcon
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/ArrowBack.svg"
-            // color: theme.color6
+            color: theme.color6
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.topMargin: 5
