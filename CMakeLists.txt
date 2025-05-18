@@ -1,13 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto6 VERSION 1.0.0 LANGUAGES CXX)
+project(dukto6 VERSION 6.9.1 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Qml)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Widgets Qml)
 
 qt_policy(SET QTP0001 NEW)
+qt_policy(SET QTP0002 NEW)
 qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(appdukto6
@@ -71,12 +72,14 @@ qt_add_qml_module(appdukto6
         src/qml/dukto6/UpdatesBox.qml
 )
 
-qt_generate_deploy_qml_app_script(
-    TARGET appdukto6
-    OUTPUT_SCRIPT deploy_script
-)
-
-install(SCRIPT ${deploy_script})
+# Only generate deploy QML app script and install for non-Android platforms
+if(NOT ANDROID)
+    qt_generate_deploy_qml_app_script(
+        TARGET appdukto6
+        OUTPUT_SCRIPT deploy_script
+    )
+    install(SCRIPT ${deploy_script})
+endif()
 
 qt_add_resources(appdukto6 "assets"
     PREFIX "/"
@@ -135,10 +138,14 @@ set_target_properties(appdukto6 PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
+# Pass version to C++ via define
+target_compile_definitions(appdukto6 PRIVATE APP_VERSION="${PROJECT_VERSION}")
+
 target_link_libraries(appdukto6
     PRIVATE Qt6::Quick
     PRIVATE Qt6::Widgets
     PRIVATE Qt6::Qml
+    PRIVATE Qt6::Core
 )
 
 # Optimize and strip binary for Linux
@@ -164,6 +171,9 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "Dukto - Simple file transfer tool for LAN")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/qaleb/dukto6")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+
+# List core runtime dependencies (glibc, libstdc++, libgcc)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libgcc-s1")
 
 # Choose DEB as the generator
 set(CPACK_GENERATOR "DEB")

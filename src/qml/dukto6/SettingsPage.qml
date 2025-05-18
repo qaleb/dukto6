@@ -121,7 +121,9 @@ Rectangle {
         anchors.top: textPath.bottom
         anchors.topMargin: 10
         label: qsTr("Change folder")
-        // onClicked: folderDialog.open()  // Open the FileDialog
+        enabled: Qt.platform.os !== "android"
+        opacity: Qt.platform.os === "android" ? 0.5 : 1.0
+        visible: true
         onClicked: {
             if (Qt.platform.os === "windows" || Qt.platform.os === "linux" || Qt.platform.os === "osx") {
                 folderDialog.open();

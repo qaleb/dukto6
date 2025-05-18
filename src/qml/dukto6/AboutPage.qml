@@ -12,7 +12,7 @@ Item {
         color: "white"
 
         Rectangle {
-            x: 27
+            x: 25
             y: 15
             width: 64
             height: 64
@@ -27,16 +27,16 @@ Item {
         }
 
         SmoothText {
-            y: 81
             x: 25
+            y: 81
             font.pixelSize: 100
-            text: "Dukto R6"
+            text: "Dukto"
             color: "#000"
         }
         SmoothText {
-            y: 137
             x: 25
-            text: qsTr("Version: 2.2024.0.2")
+            y: 137
+            text: qsTr("Version: " + guiBehind.appVersion)
             font.pixelSize: 28
             color: "#000"
         }
@@ -45,6 +45,32 @@ Item {
             y: 70 + 100
             font.pixelSize: 38
             text: "Created by Emanuele Colombo"
+            color: "#000"
+        }
+        SmoothText {
+            x: 25
+            y: 100 + 100
+            font.pixelSize: 32
+            text: qsTr("Website") + ": <a href=\"http://www.msec.it/\">http://www.msec.it/</a>"
+            onLinkActivated: function(link) {
+                handleLinkActivated(link)
+            }
+            HoverHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                cursorShape: Qt.PointingHandCursor
+            }
+            color: "#000"
+        }
+        SmoothText {
+            x: 25
+            y: 120 + 100
+            font.pixelSize: 32
+            text: "QT5: <a href=\"https://github.com/coolshou/dukto\">https://github.com/coolshou/dukto</a>"
+            onLinkActivated: handleLinkActivated('https://github.com/coolshou/dukto')
+            HoverHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                cursorShape: Qt.PointingHandCursor
+            }
             color: "#000"
         }
         SmoothText {
@@ -66,42 +92,30 @@ Item {
             }
             color: "#000"
         }
-        SmoothText {
-            x: 25
-            y: 100 + 100
-            font.pixelSize: 32
-            text: qsTr("Website") + ": <a href=\"http://www.msec.it/dukto/\">http://www.msec.it/dukto/</a>"
-            onLinkActivated: handleLinkActivated('https://www.msec.it/dukto')
-            HoverHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                cursorShape: Qt.PointingHandCursor
-            }
-            color: "#000"
-        }
-        SmoothText {
-            x: 25
-            y: 120 + 100
-            font.pixelSize: 32
-            text: "QT5: <a href=\"https://github.com/coolshou/dukto\">https://github.com/coolshou/dukto</a>"
-            onLinkActivated: handleLinkActivated('https://github.com/coolshou/dukto')
-            HoverHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                cursorShape: Qt.PointingHandCursor
-            }
-            color: "#000"
-        }
 
+        // Horizontal rule separator
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 25
+            anchors.rightMargin: 41
+            y: 320
+            height: 1
+            color: theme.color2
+            radius: 1
+        }
+        
+        // About dukto application
         SText {
             anchors.right: parent.right
             anchors.rightMargin: 41
             anchors.left: parent.left
             anchors.leftMargin: 25
-            y: 325
+            y: 335
             font.pixelSize: 12
             color: "#000"
             wrapMode: "WordWrap"
-            text: qsTr("This application and it's source code are released freely as open source project.<br>If you like this application please consider <a href=\"http://www.msec.it/\">making a donation</a>.")
-            onLinkActivated: handleLinkActivated('https://www.msec.it')
+            text: qsTr("Dukto is a simple file transfer app for LAN that lets you transfer all kinds of files and documents between devices, regardless of their operating system.")
         }
     }
 }

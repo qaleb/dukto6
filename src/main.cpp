@@ -12,13 +12,14 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("dukto");
     QCoreApplication::setOrganizationName("idv.coolshou");
     QCoreApplication::setOrganizationDomain("com.dukto");
+    QCoreApplication::setApplicationVersion(APP_VERSION); // Set version from CMake
 
     QIcon icon(":/src/assets/dukto.png"); // Set the app icon
     app.setWindowIcon(icon);
 
     QQmlApplicationEngine engine;
 
-    qDebug() << "FileUtils exists?" << QFile::exists(":/src/libs/FileUtils.java");
+    // qDebug() << "FileUtils exists?" << QFile::exists(":/src/libs/FileUtils.java");
 
     // Use the singleton instance of GuiBehind
     GuiBehind::instance(engine);

@@ -83,7 +83,7 @@ Rectangle {
         width: parent.width
         height: parent.height
         opacity: 0
-        onBack: parent.state = backState
+        onBack: function() { parent.state = backState }
         visible: false
     }
 

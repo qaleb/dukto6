@@ -117,7 +117,7 @@ Flipable {
             anchors.rightMargin: 20
             font.pixelSize: 16
             elide: "ElideRight"
-            color: "#555555"
+            color: theme.color4
         }
         SText {
             id: buddySystemText
@@ -129,7 +129,7 @@ Flipable {
             anchors.rightMargin: 20
             font.pixelSize: 14
             elide: "ElideRight"
-            color: "#555555"
+            color: theme.color4
         }
         SText {
             id: buddyIpAddress
@@ -141,7 +141,7 @@ Flipable {
             anchors.rightMargin: 20
             font.pixelSize: 14
             elide: "ElideRight"
-            color: "#555555"
+            color: theme.color4
         }
     }
 

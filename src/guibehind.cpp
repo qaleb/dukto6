@@ -23,9 +23,9 @@
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
-#include <QJniEnvironment>
+// #include <QJniEnvironment>
 #include <QtCore/private/qandroidextras_p.h>
-#include <jni.h>
+// #include <jni.h>
 #include <QtCore/QCoreApplication>
 // #include <sharedstorage.h>
 // #include "utils.h"
@@ -39,6 +39,7 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     mMiniWebServer(NULL), mSettings(this), mDestBuddy(NULL), mUpdatesChecker(NULL)
 {
 #if defined(Q_OS_ANDROID)
+    requestPermissions();
 #endif
     // Other platforms can be re-added here if needed
 
@@ -125,20 +126,21 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
 bool GuiBehind::requestPermissions() {
     QList<bool> permissions;
 
-    // Declare required permissions
+    // Declare required permissions based on Android version
     const QStringList permissionList = {
+        // For Android 12 and below
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.WRITE_SETTINGS",
-        "android.permission.VIBRATE",
-        "android.permission.INTERNET",
-        "android.permission.WAKE_LOCK",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.READ_PROFILE",
-        "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        // For Android 13+ (API 33+)
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        // Optional
+        "android.permission.WRITE_SETTINGS",
+        "android.permission.WAKE_LOCK"
     };
+
+    // TODO: Optionally check Android version and only request relevant permissions
 
     for (const QString &permission : permissionList) {
         auto result = QtAndroidPrivate::checkPermission(permission).result();
@@ -152,6 +154,9 @@ bool GuiBehind::requestPermissions() {
 
     return permissions.isEmpty();
 }
+
+// NOTE: For content URIs, you cannot use QFile directly. You must use JNI to obtain an InputStream or file descriptor.
+// See convertContentUriToFilePath or implement a method to open a stream from URI using JNI and pass it to Qt.
 #endif
 
 QRect GuiBehind::windowGeometry()
@@ -413,49 +418,38 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
 
 #if defined(Q_OS_ANDROID)
 QString GuiBehind::convertContentUriToFilePath(const QString &uri) {
-    // Get the JNI Environment
-    QJniEnvironment env;
-
-    // Convert QString to jstring (JNI)
-    jstring jUriString = env->NewStringUTF(uri.toUtf8().constData());
-
-    // Find the Android Uri class and the method to parse a string into a Uri
-    jclass uriClass = env->FindClass("android/net/Uri");
-    jmethodID parseMethod = env->GetStaticMethodID(uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-
-    // Convert the jstring to a Uri object
-    jobject jUri = env->CallStaticObjectMethod(uriClass, parseMethod, jUriString);
-
-    // Find the Java FileUtils class
-    jclass fileUtilsClass = env->FindClass("idv/coolshou/FileUtils");
-
-    // Find the method ID for "getPathFromUri"
-    jmethodID getPathFromUriMethod = env->GetStaticMethodID(fileUtilsClass, "getPathFromUri", "(Landroid/content/Context;Landroid/net/Uri;)Ljava/lang/String;");
+    qDebug() << "Converting file path to URI";
+    // Convert QString to Java String
+    QJniObject jUriString = QJniObject::fromString(uri);
 
     // Get the Android context
-    jobject context = QNativeInterface::QAndroidApplication::context().object<jobject>();
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
 
-    // Call the Java method with the correct Uri object
-    jobject result = env->CallStaticObjectMethod(fileUtilsClass, getPathFromUriMethod, context, jUri);
+    // Get the android.net.Uri object from the string
+    QJniObject uriObj = QJniObject::callStaticObjectMethod(
+        "android/net/Uri",
+        "parse",
+        "(Ljava/lang/String;)Landroid/net/Uri;",
+        jUriString.object<jstring>()
+    );
 
-    // Convert the result (jstring) back to QString
-    const char *nativeString = env->GetStringUTFChars(static_cast<jstring>(result), nullptr);
-    QString localPath = QString::fromUtf8(nativeString);
-    env->ReleaseStringUTFChars(static_cast<jstring>(result), nativeString);
+    // Call FileUtils.getPathFromUri(Context, Uri)
+    QJniObject filePath = QJniObject::callStaticObjectMethod(
+        "idv/coolshou/FileUtils",
+        "getPathFromUri",
+        "(Landroid/content/Context;Landroid/net/Uri;)Ljava/lang/String;",
+        context.object<jobject>(),
+        uriObj.object<jobject>()
+    );
 
-    // Clean up
-    env->DeleteLocalRef(jUriString);
-    env->DeleteLocalRef(jUri);
-    env->DeleteLocalRef(uriClass);
-    env->DeleteLocalRef(fileUtilsClass);
-    env->DeleteLocalRef(result);
+    QString localPath = filePath.toString();
 
-     if (localPath.isEmpty()) {
+    if (localPath.isEmpty()) {
         qDebug() << "File path from URI is empty for:" << uri;
     } else {
         qDebug() << "Converted URI to file path:" << localPath;
     }
-    
+
     return localPath;
 }
 #endif
@@ -945,7 +939,7 @@ QString GuiBehind::buddyName()
 
 QString GuiBehind::appVersion()
 {
-    return QGuiApplication::applicationVersion();
+    return QCoreApplication::applicationVersion();
 }
 
 bool GuiBehind::isTrayIconVisible()
