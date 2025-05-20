@@ -285,7 +285,48 @@ void GuiBehind::showTextSnippet(QString text, QString sender)
 
 void GuiBehind::openFile(QString path)
 {
+#if defined(Q_OS_ANDROID)
+    // Use Android Intent to open file
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    if (!context.isValid()) return;
+
+    QJniObject filePath = QJniObject::fromString(path);
+    QJniObject fileObj("java/io/File", "(Ljava/lang/String;)V", filePath.object<jstring>());
+    if (!fileObj.isValid()) return;
+
+    QJniObject uri = QJniObject::callStaticObjectMethod(
+        "androidx/core/content/FileProvider",
+        "getUriForFile",
+        "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
+        context.object<jobject>(),
+        QJniObject::fromString(context.callObjectMethod("getPackageName", "()Ljava/lang/String;").toString() + ".qtprovider").object<jstring>(),
+        fileObj.object<jobject>()
+    );
+    if (!uri.isValid()) return;
+
+    // Get MIME type
+    QJniObject contentResolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
+    QJniObject mimeType = contentResolver.callObjectMethod(
+        "getType",
+        "(Landroid/net/Uri;)Ljava/lang/String;",
+        uri.object<jobject>()
+    );
+    QString mime = mimeType.isValid() ? mimeType.toString() : "application/octet-stream";
+
+    // Create intent
+    QJniObject intent("android/content/Intent", "(Ljava/lang/String;)V",
+                      QJniObject::fromString("android.intent.action.VIEW").object<jstring>());
+    intent.callObjectMethod("setDataAndType",
+                            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
+                            uri.object<jobject>(),
+                            QJniObject::fromString(mime).object<jstring>());
+    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 1 /* FLAG_GRANT_READ_URI_PERMISSION */);
+
+    // Start activity
+    context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object<jobject>());
+#else
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+#endif
 }
 
 void GuiBehind::openDestinationFolder() {

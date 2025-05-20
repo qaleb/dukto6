@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <files-path name="files_path" path="/"/>
+    <!-- Grant access to the Download directory -->
+    <external-path name="external_downloads" path="Download/"/>
+    <!-- Grant access to Documents, Pictures, Movies, Music -->
+    <external-path name="external_documents" path="Documents/"/>
+    <external-path name="external_pictures" path="Pictures/"/>
+    <external-path name="external_movies" path="Movies/"/>
+    <external-path name="external_music" path="Music/"/>
+    <!-- Grant access to all external storage (optional, for broad compatibility) -->
+    <external-path name="external_storage" path="."/>
+    <!-- Grant access to app's private files and cache -->
+    <files-path name="internal_files" path="."/>
+    <cache-path name="internal_cache" path="."/>
 </paths>
