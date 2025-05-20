@@ -14,7 +14,6 @@
 #include <QThread>
 #include <QTemporaryFile>
 #include <QTimer>
-#include <QTime>
 #include <QClipboard>
 #include <QFileDialog>
 #include <QApplication>
@@ -23,15 +22,18 @@
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
-// #include <QJniEnvironment>
+#include <QJniEnvironment>
 #include <QtCore/private/qandroidextras_p.h>
-// #include <jni.h>
-#include <QtCore/QCoreApplication>
-// #include <sharedstorage.h>
-// #include "utils.h"
+#include <QStandardPaths>
+#include <QDir>
+#include <QList>
+#include <QString>
 #endif
 
 #define NETWORK_PORT 4644 // 6742
+
+#if defined(Q_OS_ANDROID)
+#endif
 
 // The constructor is private and can only be called within the singleton instance method
 GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
@@ -392,22 +394,30 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
     if (files.isEmpty()) return;
 
     QStringList localPaths;
+#if defined(Q_OS_ANDROID)
+    mTempFilesForTransfer.clear();
+#endif
 
     foreach (const QString &file, files) {
 #if defined(Q_OS_ANDROID)
-        // Handle content URI on Android
-        QString localFilePath = convertContentUriToFilePath(file);
-        if (!localFilePath.isEmpty()) {
-            localPaths.append(localFilePath);
+        QUrl fileUrl(file);
+        if (fileUrl.scheme() == "content") {
+            // Copy content URI to temp file
+            QString tempFilePath = copyContentUriToTempFile(file);
+            if (!tempFilePath.isEmpty()) {
+                localPaths.append(tempFilePath);
+                mTempFilesForTransfer.append(tempFilePath);
+            }
+            continue;
         }
 #endif
+        // Only define fileUrl if not already defined above
+#if !defined(Q_OS_ANDROID)
         QUrl fileUrl(file);
-
+#endif
         if (fileUrl.isLocalFile()) {
-            // If the file is a local file, append it directly
             localPaths.append(fileUrl.toLocalFile());
         }
-
     }
 
     if (localPaths.isEmpty()) return;
@@ -416,41 +426,106 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
     startTransfer(localPaths);
 }
 
+// JNI helper: copy content URI to temp file and return its path
 #if defined(Q_OS_ANDROID)
-QString GuiBehind::convertContentUriToFilePath(const QString &uri) {
-    qDebug() << "Converting file path to URI";
-    // Convert QString to Java String
-    QJniObject jUriString = QJniObject::fromString(uri);
-
-    // Get the Android context
+QString GuiBehind::copyContentUriToTempFile(const QString &uri) {
     QJniObject context = QNativeInterface::QAndroidApplication::context();
+    if (!context.isValid()) return QString();
 
-    // Get the android.net.Uri object from the string
+    QJniObject jUriString = QJniObject::fromString(uri);
     QJniObject uriObj = QJniObject::callStaticObjectMethod(
         "android/net/Uri",
         "parse",
         "(Ljava/lang/String;)Landroid/net/Uri;",
         jUriString.object<jstring>()
     );
+    if (!uriObj.isValid()) return QString();
 
-    // Call FileUtils.getPathFromUri(Context, Uri)
-    QJniObject filePath = QJniObject::callStaticObjectMethod(
-        "idv/coolshou/FileUtils",
-        "getPathFromUri",
-        "(Landroid/content/Context;Landroid/net/Uri;)Ljava/lang/String;",
-        context.object<jobject>(),
-        uriObj.object<jobject>()
-    );
-
-    QString localPath = filePath.toString();
-
-    if (localPath.isEmpty()) {
-        qDebug() << "File path from URI is empty for:" << uri;
-    } else {
-        qDebug() << "Converted URI to file path:" << localPath;
+    // Query original filename from content resolver
+    QString displayName = "file";
+    QJniObject contentResolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
+    if (contentResolver.isValid()) {
+        QJniEnvironment env;
+        jclass stringClass = env->FindClass("java/lang/String");
+        jobjectArray projArray = env->NewObjectArray(1, stringClass, nullptr);
+        QJniObject colName = QJniObject::fromString("_display_name");
+        env->SetObjectArrayElement(projArray, 0, colName.object<jobject>());
+        QJniObject cursor = contentResolver.callObjectMethod(
+            "query",
+            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+            uriObj.object<jobject>(),
+            projArray,
+            nullptr,
+            nullptr,
+            nullptr
+        );
+        if (cursor.isValid()) {
+            jobject jCursor = cursor.object<jobject>();
+            jclass cursorClass = env->GetObjectClass(jCursor);
+            jmethodID moveToFirst = env->GetMethodID(cursorClass, "moveToFirst", "()Z");
+            if (env->CallBooleanMethod(jCursor, moveToFirst)) {
+                jmethodID getColumnIndex = env->GetMethodID(cursorClass, "getColumnIndex", "(Ljava/lang/String;)I");
+                jint colIdx = env->CallIntMethod(jCursor, getColumnIndex, colName.object<jstring>());
+                jmethodID getString = env->GetMethodID(cursorClass, "getString", "(I)Ljava/lang/String;");
+                jstring jDisplayName = (jstring)env->CallObjectMethod(jCursor, getString, colIdx);
+                if (jDisplayName) {
+                    const char *cstr = env->GetStringUTFChars(jDisplayName, nullptr);
+                    displayName = QString::fromUtf8(cstr);
+                    env->ReleaseStringUTFChars(jDisplayName, cstr);
+                    env->DeleteLocalRef(jDisplayName);
+                }
+            }
+            // Close cursor
+            jmethodID closeCursor = env->GetMethodID(cursorClass, "close", "()V");
+            env->CallVoidMethod(jCursor, closeCursor);
+            env->DeleteLocalRef(cursorClass);
+        }
+        env->DeleteLocalRef(projArray);
+        env->DeleteLocalRef(stringClass);
     }
 
-    return localPath;
+    // Fallback if displayName is empty
+    if (displayName.isEmpty()) {
+        displayName = QString::number(QDateTime::currentMSecsSinceEpoch());
+    }
+
+    // Create temp file path with original filename
+    QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+        + "/" + displayName;
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::WriteOnly)) return QString();
+
+    // Read InputStream and write to temp file
+    QJniEnvironment env;
+    QJniObject inputStream = contentResolver.callObjectMethod(
+        "openInputStream",
+        "(Landroid/net/Uri;)Ljava/io/InputStream;",
+        uriObj.object<jobject>()
+    );
+    if (!inputStream.isValid()) return QString();
+
+    jbyteArray buffer = env->NewByteArray(4096);
+    jint bytesRead = 0;
+    jclass inputStreamClass = env->GetObjectClass(inputStream.object<jobject>());
+    jmethodID readMethod = env->GetMethodID(inputStreamClass, "read", "([B)I");
+
+    while (true) {
+        bytesRead = env->CallIntMethod(inputStream.object<jobject>(), readMethod, buffer);
+        if (bytesRead <= 0) break;
+        jbyte* bufPtr = env->GetByteArrayElements(buffer, nullptr);
+        tempFile.write(reinterpret_cast<const char*>(bufPtr), bytesRead);
+        env->ReleaseByteArrayElements(buffer, bufPtr, JNI_ABORT);
+    }
+    tempFile.close();
+
+    // Close InputStream
+    jmethodID closeMethod = env->GetMethodID(inputStreamClass, "close", "()V");
+    env->CallVoidMethod(inputStream.object<jobject>(), closeMethod);
+
+    env->DeleteLocalRef(buffer);
+    env->DeleteLocalRef(inputStreamClass);
+
+    return tempPath;
 }
 #endif
 
@@ -622,6 +697,13 @@ void GuiBehind::sendFileComplete()
         mScreenTempPath = "";
     }
 
+#if defined(Q_OS_ANDROID)
+    // Clean up temp files after sending
+    for (const QString &tempPath : mTempFilesForTransfer) {
+        QFile::remove(tempPath);
+    }
+    mTempFilesForTransfer.clear();
+#endif
     emit gotoMessagePage();
 }
 
@@ -659,6 +741,13 @@ void GuiBehind::sendFileError(int code)
     setMessagePageTitle(tr("Error"));
     setMessagePageText(tr("Sorry, an error has occurred while sending your data...\n\nError code: ") + QString::number(code));
     setMessagePageBackState("send");
+#if defined(Q_OS_ANDROID)
+    // Clean up temp files on error
+    for (const QString &tempPath : mTempFilesForTransfer) {
+        QFile::remove(tempPath);
+    }
+    mTempFilesForTransfer.clear();
+#endif
     // Check for temporary file to delete
     if (mScreenTempPath != "") {
         QFile file(mScreenTempPath);
@@ -734,6 +823,13 @@ void GuiBehind::abortTransfer()
 void GuiBehind::sendFileAborted()
 {
     resetProgressStatus();
+#if defined(Q_OS_ANDROID)
+    // Clean up temp files on abort
+    for (const QString &tempPath : mTempFilesForTransfer) {
+        QFile::remove(tempPath);
+    }
+    mTempFilesForTransfer.clear();
+#endif
     emit gotoSendPage();
 }
 

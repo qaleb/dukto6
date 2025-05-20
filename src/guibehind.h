@@ -104,6 +104,8 @@ public:
     QString convertContentUriToFilePath(const QString &files);
     // Request Permissions on Android
     bool requestPermissions();
+    // Add this:
+    QString copyContentUriToTempFile(const QString &uri);
     #endif
 
 signals:
@@ -225,6 +227,10 @@ private:
     void createTrayIcon();
     QSystemTrayIcon *trayIcon;
     QMenu *trayIconMenu;
+
+    #if defined(Q_OS_ANDROID)
+    QList<QString> mTempFilesForTransfer;
+    #endif
 };
 
 #endif // GUIBEHIND_H
