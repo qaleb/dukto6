@@ -17,6 +17,10 @@
 #include <QClipboard>
 #include <QFileDialog>
 #include <QApplication>
+#include <QScreen>
+#if defined(Q_OS_WIN)
+#include <QWindow>
+#endif
 
 #include <QGuiApplication>
 
@@ -121,6 +125,15 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     mUpdatesChecker = new UpdatesChecker();
     connect(mUpdatesChecker, SIGNAL(updatesAvailable()), this, SLOT(showUpdatesMessage()));
     QTimer::singleShot(2000, mUpdatesChecker, SLOT(start()));
+
+#ifdef Q_OS_WIN
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        createActions();
+        createTrayIcon();
+        if (trayIcon)
+            trayIcon->show();
+    }
+#endif
 }
 
 #if defined(Q_OS_ANDROID)
@@ -240,6 +253,11 @@ void GuiBehind::transferStatusUpdate(qint64 total, qint64 partial)
     double percent = partial * 1.0 / total * 100;
     setCurrentTransferProgress(percent);
 
+#if defined(Q_OS_WIN)
+    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+    // Optionally, you can implement Windows 10 taskbar progress using native Win32 API if needed.
+    // For now, just leave this block empty.
+#endif
     // mView->win7()->setProgressValue(percent, 100);
 }
 
@@ -335,24 +353,35 @@ void GuiBehind::openDestinationFolder() {
 #else
     QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::currentPath()));
 #endif
-    // Other platforms can be re-added here if needed
 }
 
 void GuiBehind::changeDestinationFolder(QString dirpath)
 {
+#if defined(Q_OS_WIN)
+    if (dirpath.isEmpty()) {
+        QString dirname = QFileDialog::getExistingDirectory(nullptr, tr("Change folder"), ".",
+            QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+        if (dirname.isEmpty()) return;
+        dirpath = dirname;
+    } else {
+        QUrl url(dirpath);
+        if (url.isLocalFile()) {
+            dirpath = url.toLocalFile();
+        }
+    }
+    if (dirpath.isEmpty()) return;
+    QDir::setCurrent(dirpath);
+    setCurrentPath(dirpath);
+#else
     // Convert URL to local file path
     QUrl url(dirpath);
     if (url.isLocalFile()) {
         dirpath = url.toLocalFile();
     }
-
     if (dirpath.isEmpty()) return;
-
-    // Set the new folder as current
     QDir::setCurrent(dirpath);
-
-    // Save the new setting
     setCurrentPath(dirpath);
+#endif
 }
 
 void GuiBehind::refreshIpList()
@@ -432,8 +461,15 @@ void GuiBehind::sendBuddyDroppedFiles(const QStringList &urls)
 
 void GuiBehind::sendSomeFiles(const QStringList &files)
 {
+#if defined(Q_OS_WIN)
+    QStringList localPaths = files;
+    if (localPaths.isEmpty()) {
+        localPaths = QFileDialog::getOpenFileNames(nullptr, tr("Send some files"));
+        if (localPaths.isEmpty()) return;
+    }
+    startTransfer(localPaths);
+#else
     if (files.isEmpty()) return;
-
     QStringList localPaths;
 #if defined(Q_OS_ANDROID)
     mTempFilesForTransfer.clear();
@@ -465,6 +501,7 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
 
     // Send files
     startTransfer(localPaths);
+#endif
 }
 
 // JNI helper: copy content URI to temp file and return its path
@@ -612,36 +649,57 @@ void GuiBehind::sendText()
 
 void GuiBehind::sendScreen()
 {
-    // Minimize window
-    // mView->setWindowState(Qt::WindowMinimized);
-
+#if defined(Q_OS_WIN)
+    // Minimize window if possible (QWidget-based main window)
+    QWidgetList topLevels = QApplication::topLevelWidgets();
+    for (QWidget *w : topLevels) {
+        if (w->isWindow() && w->isVisible()) {
+            w->setWindowState(Qt::WindowMinimized);
+            break;
+        }
+    }
+#endif
     QTimer::singleShot(500, this, SLOT(sendScreenStage2()));
 }
 
-void GuiBehind::sendScreenStage2() {
-
+void GuiBehind::sendScreenStage2()
+{
+#if defined(Q_OS_WIN)
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QPixmap pixmap = screen->grabWindow(0);
+    // Restore window if possible
+    QWidgetList topLevels = QApplication::topLevelWidgets();
+    for (QWidget *w : topLevels) {
+        if (w->isWindow() && w->windowState() == Qt::WindowMinimized) {
+            w->setWindowState(Qt::WindowActive);
+            break;
+        }
+    }
+    QTemporaryFile tempFile;
+    tempFile.setAutoRemove(false);
+    tempFile.open();
+    mScreenTempPath = tempFile.fileName();
+    tempFile.close();
+    pixmap.save(mScreenTempPath, "JPG", 95);
+    QString ip;
+    qint16 port;
+    if (!prepareStartTransfer(&ip, &port)) return;
+    mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
+#else
     // Screenshot
     // QPixmap screen = QPixmap::grabWindow(QApplication::desktop()->winId());
     QPixmap screen = QGuiApplication::primaryScreen()->grabWindow(0);
-
-    // Restore window
-    // mView->setWindowState(Qt::WindowActive);
-
-    // Salvataggio screenshot in file
     QTemporaryFile tempFile;
     tempFile.setAutoRemove(false);
     tempFile.open();
     mScreenTempPath = tempFile.fileName();
     tempFile.close();
     screen.save(mScreenTempPath, "JPG", 95);
-
-    // Prepare file transfer
     QString ip;
     qint16 port;
     if (!prepareStartTransfer(&ip, &port)) return;
-
-    // Start screen transfer
     mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
+#endif
 }
 
 void GuiBehind::startTransfer(QStringList files)
@@ -745,38 +803,12 @@ void GuiBehind::sendFileComplete()
     }
     mTempFilesForTransfer.clear();
 #endif
+#if defined(Q_OS_WIN)
+    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+#endif
     emit gotoMessagePage();
 }
 
-void GuiBehind::remoteDestinationAddressHandler()
-{
-    // Update GUI status
-    setCurrentTransferBuddy(remoteDestinationAddress());
-    setTextSnippetBuddy(remoteDestinationAddress());
-}
-
-// Returns true if the application is ready to accept
-// drag and drop for files to send
-bool GuiBehind::canAcceptDrop()
-{
-    // There must be the send page shown and,
-    // if it's a remote destination, it must have an IP
-    if (overlayState() == "send")
-        return !((mDestBuddy->ip() == "IP") && (remoteDestinationAddress() == ""));
-
-    // Or there could be a "send complete" or "send error" message relative to a
-    // determinate buddy
-    else if ((overlayState() == "message") && (messagePageBackState() == "send"))
-        return true;
-
-    // Or there could be just one buddy in the list
-    else if (mBuddiesList.rowCount() == 3)
-        return true;
-
-    return false;
-}
-
-// Handles send error
 void GuiBehind::sendFileError(int code)
 {
     setMessagePageTitle(tr("Error"));
@@ -795,51 +827,28 @@ void GuiBehind::sendFileError(int code)
         file.remove();
         mScreenTempPath = "";
     }
+#if defined(Q_OS_WIN)
+    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+#endif
     emit gotoMessagePage();
 }
 
-// Handles receive error
 void GuiBehind::receiveFileCancelled()
 {
     setMessagePageTitle(tr("Error"));
     setMessagePageText(tr("An error has occurred during the transfer... The data you received could be incomplete or broken."));
     setMessagePageBackState("");
     emit gotoMessagePage();
+#if defined(Q_OS_WIN)
+    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+#endif
 }
 
-// Event handler to catch the "application activate" event
-// bool GuiBehind::eventFilter(QObject *obj, QEvent *event)
-// {
-//     // On application activatio, I send a broadcast hello
-//     if (event->type() == QEvent::ApplicationActivate)
-//         mDuktoProtocol.sayHello(QHostAddress::Broadcast);
-
-//     return false;
-// }
-
-// Changes the current theme color
-
-void GuiBehind::changeThemeColor(QString color)
-{
-    mTheme.setThemeColor(color);
-    mSettings.saveThemeColor(color);
-}
-
-QString GuiBehind::getCurrentThemeColor()
-{
-    return mSettings.themeColor();
-}
-
-// Called on application closing event
-void GuiBehind::close()
-{
-    mDuktoProtocol.sayGoodbye();
-}
-
-// Reset taskbar progress status
 void GuiBehind::resetProgressStatus()
 {
-    // mView->win7()->setProgressState(EcWin7::NoProgress);
+#if defined(Q_OS_WIN)
+    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+#endif
 }
 
 // Periodic hello sending
@@ -1098,20 +1107,108 @@ void GuiBehind::setTrayIconVisible(bool bVisible)
 
 void GuiBehind::createActions()
 {
-    // Only needed for other platforms, can be re-added here
+#if defined(Q_OS_WIN)
+    minimizeAction = new QAction(tr("Mi&nimize"), this);
+    connect(minimizeAction, &QAction::triggered, []() {
+        QWidgetList topLevels = QApplication::topLevelWidgets();
+        for (QWidget *w : topLevels) {
+            if (w->isWindow() && w->isVisible()) {
+                w->showMinimized();
+                break;
+            }
+        }
+    });
+
+    restoreAction = new QAction(tr("&Restore"), this);
+    connect(restoreAction, &QAction::triggered, []() {
+        QWidgetList topLevels = QApplication::topLevelWidgets();
+        for (QWidget *w : topLevels) {
+            if (w->isWindow()) {
+                w->showNormal();
+                break;
+            }
+        }
+    });
+
+    quitAction = new QAction(tr("&Quit"), this);
+    connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
+#endif
 }
 
 void GuiBehind::createTrayIcon()
 {
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    trayIconMenu = new QMenu(mView);
-#else
-    trayIconMenu = new QMenu(nullptr);
+#if defined(Q_OS_WIN)
+    trayIconMenu = new QMenu();
+    trayIconMenu->addAction(minimizeAction);
+    trayIconMenu->addAction(restoreAction);
+    trayIconMenu->addSeparator();
+    trayIconMenu->addAction(quitAction);
+
+    trayIcon = new QSystemTrayIcon(this);
+    trayIcon->setContextMenu(trayIconMenu);
+    QIcon icon(":/src/assets/dukto.png"); // Ensure this path matches your resource
+    trayIcon->setIcon(icon); // Set icon before showing
+    connect(trayIcon, &QSystemTrayIcon::activated, this, &GuiBehind::iconActivated);
 #endif
-    // Only needed for other platforms, can be re-added here
 }
 
 void GuiBehind::iconActivated(QSystemTrayIcon::ActivationReason reason)
 {
-    // Only needed for other platforms, can be re-added here
+#if defined(Q_OS_WIN)
+    if (reason == QSystemTrayIcon::Trigger) {
+        // For QtQuick/QML, get the first visible window and restore it
+        const auto windows = QGuiApplication::allWindows();
+        for (QWindow *w : windows) {
+            if (w && w->isVisible()) {
+                if (w->windowState() & Qt::WindowMinimized) {
+                    w->setWindowState(Qt::WindowNoState);
+                }
+                w->show();
+                w->raise();
+                w->requestActivate();
+                break;
+            }
+        }
+    }
+#endif
+    // ...existing code...
+}
+
+// Add this if missing
+void GuiBehind::remoteDestinationAddressHandler()
+{
+    // Update GUI status
+    setCurrentTransferBuddy(remoteDestinationAddress());
+    setTextSnippetBuddy(remoteDestinationAddress());
+}
+
+// Add this if missing
+bool GuiBehind::canAcceptDrop()
+{
+    // There must be the send page shown and,
+    // if it's a remote destination, it must have an IP
+    if (overlayState() == "send")
+        return !((mDestBuddy->ip() == "IP") && (remoteDestinationAddress() == ""));
+
+    // Or there could be a "send complete" or "send error" message relative to a
+    // determinate buddy
+    else if ((overlayState() == "message") && (messagePageBackState() == "send"))
+        return true;
+
+    // Or there could be just one buddy in the list
+    else if (mBuddiesList.rowCount() == 3)
+        return true;
+
+    return false;
+}
+
+void GuiBehind::close()
+{
+    mDuktoProtocol.sayGoodbye();
+}
+
+void GuiBehind::changeThemeColor(QString color)
+{
+    mTheme.setThemeColor(color);
+    mSettings.saveThemeColor(color);
 }

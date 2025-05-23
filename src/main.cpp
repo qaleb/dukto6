@@ -1,4 +1,4 @@
-#include <QGuiApplication>
+#include <QApplication> // Add this include
 #include <QQmlApplicationEngine>
 #include <QIcon>
 #include <QFile>
@@ -7,7 +7,11 @@
 
 int main(int argc, char *argv[])
 {
+#if defined(Q_OS_WIN) || defined(Q_OS_UNIX)
+    QApplication app(argc, argv); // Use QApplication for desktop
+#else
     QGuiApplication app(argc, argv);
+#endif
 
     QCoreApplication::setApplicationName("dukto");
     QCoreApplication::setOrganizationName("idv.coolshou");

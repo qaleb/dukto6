@@ -222,11 +222,15 @@ private:
     void startTransfer(QStringList files);
     void startTransfer(QString text);
 
-    //system tray
+#if defined(Q_OS_WIN)
+    QAction *minimizeAction = nullptr;
+    QAction *restoreAction = nullptr;
+    QAction *quitAction = nullptr;
     void createActions();
     void createTrayIcon();
-    QSystemTrayIcon *trayIcon;
-    QMenu *trayIconMenu;
+    QSystemTrayIcon *trayIcon = nullptr;
+    QMenu *trayIconMenu = nullptr;
+#endif
 
     #if defined(Q_OS_ANDROID)
     QList<QString> mTempFilesForTransfer;
