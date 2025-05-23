@@ -20,6 +20,60 @@
 #include <QScreen>
 #if defined(Q_OS_WIN)
 #include <QWindow>
+#include <windows.h>
+#include <ShObjIdl.h>
+
+// Helper for Windows 7+ taskbar progress
+class WinTaskbarProgressHelper {
+public:
+    static ITaskbarList3* getTaskbar() {
+        static ITaskbarList3* pTaskbar = nullptr;
+        static bool initialized = false;
+        if (!initialized) {
+            CoInitialize(nullptr);
+            HRESULT hr = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
+                                          IID_ITaskbarList3, (void**)&pTaskbar);
+            initialized = true;
+        }
+        return pTaskbar;
+    }
+    static HWND getMainWindowHandle() {
+        // Try to get the first visible top-level window
+        const auto windows = QGuiApplication::allWindows();
+        for (QWindow *w : windows) {
+            if (w && w->isVisible()) {
+                return (HWND)w->winId();
+            }
+        }
+        return nullptr;
+    }
+    static void setProgress(int value, int maximum) {
+        ITaskbarList3* pTaskbar = getTaskbar();
+        HWND hwnd = getMainWindowHandle();
+        if (pTaskbar && hwnd) {
+            if (maximum > 0 && value >= 0) {
+                pTaskbar->SetProgressState(hwnd, TBPF_NORMAL);
+                pTaskbar->SetProgressValue(hwnd, value, maximum);
+            } else {
+                pTaskbar->SetProgressState(hwnd, TBPF_NOPROGRESS);
+            }
+        }
+    }
+    static void clearProgress() {
+        ITaskbarList3* pTaskbar = getTaskbar();
+        HWND hwnd = getMainWindowHandle();
+        if (pTaskbar && hwnd) {
+            pTaskbar->SetProgressState(hwnd, TBPF_NOPROGRESS);
+        }
+    }
+    static void cleanup() {
+        ITaskbarList3* pTaskbar = getTaskbar();
+        if (pTaskbar) {
+            pTaskbar->Release();
+            CoUninitialize();
+        }
+    }
+};
 #endif
 
 #include <QGuiApplication>
@@ -847,7 +901,8 @@ void GuiBehind::receiveFileCancelled()
 void GuiBehind::resetProgressStatus()
 {
 #if defined(Q_OS_WIN)
-    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+    // Clear progress on Windows taskbar
+    WinTaskbarProgressHelper::clearProgress();
 #endif
 }
 
@@ -908,6 +963,10 @@ void GuiBehind::setCurrentTransferProgress(int value)
     if (value == mCurrentTransferProgress) return;
     mCurrentTransferProgress = value;
     emit currentTransferProgressChanged();
+#if defined(Q_OS_WIN)
+    // Show progress on Windows taskbar
+    WinTaskbarProgressHelper::setProgress(value, 100);
+#endif
 }
 
 QString GuiBehind::currentTransferStats()
