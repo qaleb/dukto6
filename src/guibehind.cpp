@@ -1149,7 +1149,7 @@ QString GuiBehind::appVersion()
 
 bool GuiBehind::isTrayIconVisible()
 {
-#if defined(Q_OS_UNIX) || defined(Q_OS_ANDROID)
+#if defined(Q_OS_WIN)
     if (QSystemTrayIcon::isSystemTrayAvailable() && trayIcon)
         return trayIcon->isVisible();
 #endif
@@ -1158,15 +1158,15 @@ bool GuiBehind::isTrayIconVisible()
 
 void GuiBehind::setTrayIconVisible(bool bVisible)
 {
-#if defined(Q_OS_UNIX) || defined(Q_OS_ANDROID)
+#if defined(Q_OS_WIN)
     if (QSystemTrayIcon::isSystemTrayAvailable() && trayIcon)
         trayIcon->setVisible(bVisible);
 #endif
 }
 
+#if defined(Q_OS_WIN)
 void GuiBehind::createActions()
 {
-#if defined(Q_OS_WIN)
     minimizeAction = new QAction(tr("Mi&nimize"), this);
     connect(minimizeAction, &QAction::triggered, []() {
         QWidgetList topLevels = QApplication::topLevelWidgets();
@@ -1191,12 +1191,10 @@ void GuiBehind::createActions()
 
     quitAction = new QAction(tr("&Quit"), this);
     connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
-#endif
 }
 
 void GuiBehind::createTrayIcon()
 {
-#if defined(Q_OS_WIN)
     trayIconMenu = new QMenu();
     trayIconMenu->addAction(minimizeAction);
     trayIconMenu->addAction(restoreAction);
@@ -1208,8 +1206,8 @@ void GuiBehind::createTrayIcon()
     QIcon icon(":/src/assets/dukto.png"); // Ensure this path matches your resource
     trayIcon->setIcon(icon); // Set icon before showing
     connect(trayIcon, &QSystemTrayIcon::activated, this, &GuiBehind::iconActivated);
-#endif
 }
+#endif
 
 void GuiBehind::iconActivated(QSystemTrayIcon::ActivationReason reason)
 {
