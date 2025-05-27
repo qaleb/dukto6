@@ -11,19 +11,27 @@ qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0002 NEW)
 qt_policy(SET QTP0004 NEW)
 
-qt_add_executable(appdukto6
+# Embed Windows icon in the executable
+if(WIN32)
+    set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/src/dukto.rc")
+    set_source_files_properties(${app_icon_resource_windows} PROPERTIES LANGUAGE RC)
+endif()
+
+qt_add_executable(dukto6
     src/buddylistitemmodel.cpp
     src/destinationbuddy.cpp
     src/duktoprotocol.cpp
     src/guibehind.cpp
     src/ipaddressitemmodel.cpp
     src/main.cpp
+    ${app_icon_resource_windows}
     src/miniwebserver.cpp
     src/platform.cpp
     src/recentlistitemmodel.cpp
     src/settings.cpp
     src/theme.cpp
     src/updateschecker.cpp
+    # src/winhelper.cpp
     src/buddylistitemmodel.h
     src/destinationbuddy.h
     src/duktoprotocol.h
@@ -36,9 +44,10 @@ qt_add_executable(appdukto6
     src/settings.h
     src/theme.h
     src/updateschecker.h
+    src/winhelper.h
 )
 
-qt_add_qml_module(appdukto6
+qt_add_qml_module(dukto6
     URI dukto6
     QML_FILES
         src/qml/dukto6/AboutPage.qml
@@ -70,18 +79,19 @@ qt_add_qml_module(appdukto6
         src/qml/dukto6/TermsPage.qml
         src/qml/dukto6/TopTabBar.qml
         src/qml/dukto6/UpdatesBox.qml
+        RESOURCES src/dukto.rc
 )
 
 # Only generate deploy QML app script and install for non-Android platforms
 if(NOT ANDROID)
     qt_generate_deploy_qml_app_script(
-        TARGET appdukto6
+        TARGET dukto6
         OUTPUT_SCRIPT deploy_script
     )
     install(SCRIPT ${deploy_script})
 endif()
 
-qt_add_resources(appdukto6 "assets"
+qt_add_resources(dukto6 "assets"
     PREFIX "/"
     FILES
         # Fonts
@@ -123,15 +133,15 @@ qt_add_resources(appdukto6 "assets"
         src/assets/WindowsLogo.png
 )
 
-set_target_properties(appdukto6 PROPERTIES
+set_target_properties(dukto6 PROPERTIES
     QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
 # explicit, fixed bundle identifier manually though.
-set_target_properties(appdukto6 PROPERTIES
-#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appdukto6
+set_target_properties(dukto6 PROPERTIES
+#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.dukto6
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
     MACOSX_BUNDLE TRUE
@@ -139,9 +149,9 @@ set_target_properties(appdukto6 PROPERTIES
 )
 
 # Pass version to C++ via define
-target_compile_definitions(appdukto6 PRIVATE APP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(dukto6 PRIVATE APP_VERSION="${PROJECT_VERSION}")
 
-target_link_libraries(appdukto6
+target_link_libraries(dukto6
     PRIVATE Qt6::Quick
     PRIVATE Qt6::Widgets
     PRIVATE Qt6::Qml
@@ -150,14 +160,14 @@ target_link_libraries(appdukto6
 
 # Optimize and strip binary for Linux
 if (UNIX AND NOT APPLE)
-    add_custom_command(TARGET appdukto6 POST_BUILD
-        COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:appdukto6>
+    add_custom_command(TARGET dukto6 POST_BUILD
+        COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:dukto6>
         COMMENT "Stripping binary to reduce size"
     )
 endif()
 
 include(GNUInstallDirs)
-install(TARGETS appdukto6
+install(TARGETS dukto6
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

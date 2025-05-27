@@ -23,10 +23,6 @@ class MiniWebServer;
 class QNetworkAccessManager;
 class QNetworkReply;
 
-#if defined(Q_OS_WIN)
-class WindowsTaskbarProgress; // Forward declaration
-#endif
-
 class GuiBehind : public QObject
 {
     Q_OBJECT
@@ -234,7 +230,6 @@ private:
     void createTrayIcon();
     QSystemTrayIcon *trayIcon = nullptr;
     QMenu *trayIconMenu = nullptr;
-    WindowsTaskbarProgress* m_taskbarProgress;
 #endif
 
     #if defined(Q_OS_ANDROID)

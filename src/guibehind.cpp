@@ -1,5 +1,6 @@
 #include "guibehind.h"
 #include "platform.h"
+#include "winhelper.h" // Add this include
 
 #include <QDebug>
 #include <QQmlContext>
@@ -22,70 +23,6 @@
 #include <QWindow>
 #include <windows.h>
 #include <ShObjIdl.h>
-
-// Helper for Windows 7+ taskbar progress
-class WinTaskbarProgressHelper {
-public:
-    static ITaskbarList3* getTaskbar() {
-        static ITaskbarList3* pTaskbar = nullptr;
-        static bool initialized = false;
-        if (!initialized) {
-            CoInitialize(nullptr);
-            HRESULT hr = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER,
-                                          IID_ITaskbarList3, (void**)&pTaskbar);
-            initialized = true;
-        }
-        return pTaskbar;
-    }
-    static HWND getMainWindowHandle() {
-        // Try to get the first visible top-level window
-        const auto windows = QGuiApplication::allWindows();
-        for (QWindow *w : windows) {
-            if (w && w->isVisible()) {
-                return (HWND)w->winId();
-            }
-        }
-        return nullptr;
-    }
-    static void setProgress(int value, int maximum) {
-        ITaskbarList3* pTaskbar = getTaskbar();
-        HWND hwnd = getMainWindowHandle();
-        if (pTaskbar && hwnd) {
-            if (maximum > 0 && value >= 0) {
-                pTaskbar->SetProgressState(hwnd, TBPF_NORMAL);
-                pTaskbar->SetProgressValue(hwnd, value, maximum);
-            } else {
-                pTaskbar->SetProgressState(hwnd, TBPF_NOPROGRESS);
-            }
-        }
-    }
-    static void clearProgress() {
-        ITaskbarList3* pTaskbar = getTaskbar();
-        HWND hwnd = getMainWindowHandle();
-        if (pTaskbar && hwnd) {
-            pTaskbar->SetProgressState(hwnd, TBPF_NOPROGRESS);
-        }
-    }
-    static void cleanup() {
-        ITaskbarList3* pTaskbar = getTaskbar();
-        if (pTaskbar) {
-            pTaskbar->Release();
-            CoUninitialize();
-        }
-    }
-};
-#endif
-
-#include <QGuiApplication>
-
-#if defined(Q_OS_ANDROID)
-#include <QJniObject>
-#include <QJniEnvironment>
-#include <QtCore/private/qandroidextras_p.h>
-#include <QStandardPaths>
-#include <QDir>
-#include <QList>
-#include <QString>
 #endif
 
 #define NETWORK_PORT 4644 // 6742
@@ -324,12 +261,26 @@ void GuiBehind::receiveFileComplete(QStringList *files, qint64 totalSize) {
     else
         mRecentList.addRecent(tr("Files and folders"), d.absolutePath(), "misc", mCurrentTransferBuddy, totalSize);
 
-// Update GUI
-// mView->win7()->setProgressState(EcWin7::NoProgress);
+    // Update GUI
+    // mView->win7()->setProgressState(EcWin7::NoProgress);
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
     //TODO: check QtQuick 2 alert
     QApplication::alert(mView, 5000);
 #endif
+
+#if defined(Q_OS_WIN)
+    HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
+    WinHelper::WinTaskbarProgressHelper::setSuccess(hwnd);
+    if (!WinHelper::WinTaskbarProgressHelper::isMainWindowActive()) {
+        WinHelper::WinTaskbarProgressHelper::flashWindowIfNotActive(hwnd);
+        QTimer::singleShot(1500, this, []() {
+            WinHelper::WinTaskbarProgressHelper::clearProgress();
+        });
+    } else {
+        WinHelper::WinTaskbarProgressHelper::clearProgress();
+    }
+#endif
+
     emit receiveCompleted();
 }
 
@@ -338,12 +289,26 @@ void GuiBehind::receiveTextComplete(QString *text, qint64 totalSize)
     // Add an entry to recent activities
     mRecentList.addRecent(tr("Text snippet"), *text, "text", mCurrentTransferBuddy, totalSize);
 
-// Update GUI
-// mView->win7()->setProgressState(EcWin7::NoProgress);
+    // Update GUI
+    // mView->win7()->setProgressState(EcWin7::NoProgress);
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
     //TODO: check QtQuick 2 alert
     QApplication::alert(mView, 5000);
 #endif
+
+#if defined(Q_OS_WIN)
+    HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
+    WinHelper::WinTaskbarProgressHelper::setSuccess(hwnd);
+    if (!WinHelper::WinTaskbarProgressHelper::isMainWindowActive()) {
+        WinHelper::WinTaskbarProgressHelper::flashWindowIfNotActive(hwnd);
+        QTimer::singleShot(1500, this, []() {
+            WinHelper::WinTaskbarProgressHelper::clearProgress();
+        });
+    } else {
+        WinHelper::WinTaskbarProgressHelper::clearProgress();
+    }
+#endif
+
     emit receiveCompleted();
 }
 
@@ -484,7 +449,9 @@ void GuiBehind::sendDroppedFiles(const QStringList &files)
     foreach (const QString &url, files) {
         QUrl fileUrl(url);
         if (fileUrl.isLocalFile()) {
-            localPaths.append(fileUrl.toLocalFile());
+            QString path = fileUrl.toLocalFile();
+            path.replace("\\", "/"); // Normalize to forward slashes
+            localPaths.append(path);
         }
     }
 
@@ -502,11 +469,11 @@ void GuiBehind::sendBuddyDroppedFiles(const QStringList &urls)
     foreach (const QString &url, urls) {
         QUrl fileUrl(url);
         if (fileUrl.isLocalFile()) {
-            localPaths.append(fileUrl.toLocalFile());
+            QString path = fileUrl.toLocalFile();
+            path.replace("\\", "/"); // Normalize to forward slashes
+            localPaths.append(path);
         }
     }
-
-    // qDebug() << localPaths;
 
     // Send files
     QStringList toSend = localPaths;
@@ -516,10 +483,28 @@ void GuiBehind::sendBuddyDroppedFiles(const QStringList &urls)
 void GuiBehind::sendSomeFiles(const QStringList &files)
 {
 #if defined(Q_OS_WIN)
-    QStringList localPaths = files;
+    QStringList localPaths;
+    // Convert file URLs to local file paths if needed
+    for (const QString &file : files) {
+        QUrl fileUrl(file);
+        if (fileUrl.isLocalFile()) {
+            QString path = fileUrl.toLocalFile();
+            path.replace("\\", "/");
+            localPaths.append(path);
+        } else {
+            // If not a file URL, assume it's a direct path
+            QString path = file;
+            path.replace("\\", "/");
+            localPaths.append(path);
+        }
+    }
     if (localPaths.isEmpty()) {
         localPaths = QFileDialog::getOpenFileNames(nullptr, tr("Send some files"));
         if (localPaths.isEmpty()) return;
+        // Normalize all paths to forward slashes
+        for (QString &path : localPaths) {
+            path.replace("\\", "/");
+        }
     }
     startTransfer(localPaths);
 #else
@@ -536,18 +521,20 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
             // Copy content URI to temp file
             QString tempFilePath = copyContentUriToTempFile(file);
             if (!tempFilePath.isEmpty()) {
+                tempFilePath.replace("\\", "/"); // Normalize to forward slashes
                 localPaths.append(tempFilePath);
                 mTempFilesForTransfer.append(tempFilePath);
             }
             continue;
         }
 #endif
-        // Only define fileUrl if not already defined above
 #if !defined(Q_OS_ANDROID)
         QUrl fileUrl(file);
 #endif
         if (fileUrl.isLocalFile()) {
-            localPaths.append(fileUrl.toLocalFile());
+            QString path = fileUrl.toLocalFile();
+            path.replace("\\", "/"); // Normalize to forward slashes
+            localPaths.append(path);
         }
     }
 
@@ -556,6 +543,26 @@ void GuiBehind::sendSomeFiles(const QStringList &files)
     // Send files
     startTransfer(localPaths);
 #endif
+}
+
+void GuiBehind::sendAllFiles(const QStringList &files)
+{
+    if (files.isEmpty()) return;
+
+    QStringList localPaths;
+
+    foreach (const QString &file, files) {
+        QUrl fileUrl(file);
+        if (fileUrl.isLocalFile()) {
+            QString path = fileUrl.toLocalFile();
+            path.replace("\\", "/"); // Normalize to forward slashes
+            localPaths.append(path);
+        }
+    }
+
+    // Send files
+    QStringList toSend = localPaths;
+    startTransfer(toSend);
 }
 
 // JNI helper: copy content URI to temp file and return its path
@@ -661,26 +668,6 @@ QString GuiBehind::copyContentUriToTempFile(const QString &uri) {
 }
 #endif
 
-void GuiBehind::sendAllFiles(const QStringList &files)
-{
-    if (files.isEmpty()) return;
-
-    QStringList localPaths;
-
-    foreach (const QString &file, files) {
-        QUrl fileUrl(file);
-        if (fileUrl.isLocalFile()) {
-            localPaths.append(fileUrl.toLocalFile());
-        }
-    }
-
-    // qDebug() << localPaths;
-
-    // Send files
-    QStringList toSend = localPaths;
-    startTransfer(toSend);
-}
-
 void GuiBehind::sendClipboardText()
 {
     // Get text to send
@@ -706,7 +693,8 @@ void GuiBehind::sendScreen()
 #if defined(Q_OS_WIN)
     // Minimize window if possible (QWidget-based main window)
     QWidgetList topLevels = QApplication::topLevelWidgets();
-    for (QWidget *w : topLevels) {
+    for (int i = 0; i < topLevels.size(); ++i) {
+        QWidget *w = topLevels.at(i);
         if (w->isWindow() && w->isVisible()) {
             w->setWindowState(Qt::WindowMinimized);
             break;
@@ -719,39 +707,83 @@ void GuiBehind::sendScreen()
 void GuiBehind::sendScreenStage2()
 {
 #if defined(Q_OS_WIN)
-    QScreen *screen = QGuiApplication::primaryScreen();
-    QPixmap pixmap = screen->grabWindow(0);
-    // Restore window if possible
+    // Hide all top-level windows
     QWidgetList topLevels = QApplication::topLevelWidgets();
-    for (QWidget *w : topLevels) {
-        if (w->isWindow() && w->windowState() == Qt::WindowMinimized) {
-            w->setWindowState(Qt::WindowActive);
-            break;
+    QList<QWidget *> hiddenWindows;
+    for (int i = 0; i < topLevels.size(); ++i)
+    {
+        QWidget *w = topLevels.at(i);
+        if (w->isWindow() && w->isVisible())
+        {
+            w->hide();
+            hiddenWindows.append(w);
         }
     }
+
+    // Process events and give the OS time to repaint the desktop
+    QGuiApplication::processEvents();
+    QThread::msleep(300); // <-- This is critical!
+
+    // Take screenshot after delay
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QPixmap pixmap = screen->grabWindow(0);
+
+    // Restore all previously hidden windows
+    for (int i = 0; i < hiddenWindows.size(); ++i)
+    {
+        hiddenWindows.at(i)->show();
+    }
+    QGuiApplication::processEvents();
+
+    // Save the screenshot
     QTemporaryFile tempFile;
     tempFile.setAutoRemove(false);
     tempFile.open();
     mScreenTempPath = tempFile.fileName();
     tempFile.close();
-    pixmap.save(mScreenTempPath, "JPG", 95);
+    pixmap.save(mScreenTempPath, "PNG", 0);
+
+    // Send
     QString ip;
     qint16 port;
-    if (!prepareStartTransfer(&ip, &port)) return;
+    if (!prepareStartTransfer(&ip, &port))
+        return;
     mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
 #else
-    // Screenshot
-    // QPixmap screen = QPixmap::grabWindow(QApplication::desktop()->winId());
-    QPixmap screen = QGuiApplication::primaryScreen()->grabWindow(0);
+    // Same logic applies for non-Windows platforms
+    const auto windows = QGuiApplication::allWindows();
+    QList<QWindow *> hiddenWindows;
+    for (QWindow *w : windows)
+    {
+        if (w->isVisible())
+        {
+            w->hide();
+            hiddenWindows.append(w);
+        }
+    }
+
+    QGuiApplication::processEvents();
+    QThread::msleep(300); // Let the OS update the screen
+
+    QPixmap pixmap = QGuiApplication::primaryScreen()->grabWindow(0);
+
+    for (QWindow *w : hiddenWindows)
+    {
+        w->show();
+    }
+    QGuiApplication::processEvents();
+
     QTemporaryFile tempFile;
     tempFile.setAutoRemove(false);
     tempFile.open();
     mScreenTempPath = tempFile.fileName();
     tempFile.close();
-    screen.save(mScreenTempPath, "JPG", 95);
+    pixmap.save(mScreenTempPath, "PNG", 0);
+
     QString ip;
     qint16 port;
-    if (!prepareStartTransfer(&ip, &port)) return;
+    if (!prepareStartTransfer(&ip, &port))
+        return;
     mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
 #endif
 }
@@ -840,11 +872,9 @@ void GuiBehind::sendFileComplete()
     setMessagePageText(tr("Your data has been sent to your buddy!\n\nDo you want to send other files to your buddy? Just drag and drop them here!"));
     setMessagePageBackState("send");
     // Other platforms can be re-added here if needed
-    // mView->win7()->setProgressState(EcWin7::NoProgress);
 
     // Check for temporary file to delete
     if (mScreenTempPath != "") {
-
         QFile file(mScreenTempPath);
         file.remove();
         mScreenTempPath = "";
@@ -858,7 +888,18 @@ void GuiBehind::sendFileComplete()
     mTempFilesForTransfer.clear();
 #endif
 #if defined(Q_OS_WIN)
-    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+    HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
+    WinHelper::WinTaskbarProgressHelper::setSuccess(hwnd);
+    if (!WinHelper::WinTaskbarProgressHelper::isMainWindowActive()) {
+        WinHelper::WinTaskbarProgressHelper::flashWindowIfNotActive(hwnd);
+        // Clear progress after a short delay to allow user to see the green bar
+        QTimer::singleShot(1500, this, []() {
+            WinHelper::WinTaskbarProgressHelper::clearProgress();
+        });
+    } else {
+        // If app is focused, clear progress immediately
+        WinHelper::WinTaskbarProgressHelper::clearProgress();
+    }
 #endif
     emit gotoMessagePage();
 }
@@ -882,27 +923,36 @@ void GuiBehind::sendFileError(int code)
         mScreenTempPath = "";
     }
 #if defined(Q_OS_WIN)
-    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
+    HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
+    WinHelper::WinTaskbarProgressHelper::setError(hwnd);
+    if (!WinHelper::WinTaskbarProgressHelper::isMainWindowActive()) {
+        WinHelper::WinTaskbarProgressHelper::flashWindowIfNotActive(hwnd);
+        // Keep red progress until app is focused, then clear
+        // Use an event filter to detect focus, or poll periodically
+        static QMetaObject::Connection focusConn;
+        if (focusConn)
+            QObject::disconnect(focusConn);
+        focusConn = QObject::connect(qApp, &QGuiApplication::applicationStateChanged, this, [hwnd](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationActive) {
+                WinHelper::WinTaskbarProgressHelper::clearProgress();
+                QObject::disconnect(focusConn);
+                focusConn = {};
+            }
+        });
+    } else {
+        // If app is focused, clear progress after a short delay
+        QTimer::singleShot(2000, this, []() {
+            WinHelper::WinTaskbarProgressHelper::clearProgress();
+        });
+    }
 #endif
     emit gotoMessagePage();
-}
-
-void GuiBehind::receiveFileCancelled()
-{
-    setMessagePageTitle(tr("Error"));
-    setMessagePageText(tr("An error has occurred during the transfer... The data you received could be incomplete or broken."));
-    setMessagePageBackState("");
-    emit gotoMessagePage();
-#if defined(Q_OS_WIN)
-    // Qt 6.9+: QWinTaskbarButton/Progress is removed, so do nothing here.
-#endif
 }
 
 void GuiBehind::resetProgressStatus()
 {
 #if defined(Q_OS_WIN)
-    // Clear progress on Windows taskbar
-    WinTaskbarProgressHelper::clearProgress();
+    WinHelper::WinTaskbarProgressHelper::clearProgress();
 #endif
 }
 
@@ -965,7 +1015,7 @@ void GuiBehind::setCurrentTransferProgress(int value)
     emit currentTransferProgressChanged();
 #if defined(Q_OS_WIN)
     // Show progress on Windows taskbar
-    WinTaskbarProgressHelper::setProgress(value, 100);
+    WinHelper::WinTaskbarProgressHelper::setProgress(value, 100);
 #endif
 }
 
@@ -1168,9 +1218,10 @@ void GuiBehind::createActions()
 {
 #if defined(Q_OS_WIN)
     minimizeAction = new QAction(tr("Mi&nimize"), this);
-    connect(minimizeAction, &QAction::triggered, []() {
+    connect(minimizeAction, &QAction::triggered, this, []() {
         QWidgetList topLevels = QApplication::topLevelWidgets();
-        for (QWidget *w : topLevels) {
+        for (int i = 0; i < topLevels.size(); ++i) {
+            QWidget *w = topLevels.at(i);
             if (w->isWindow() && w->isVisible()) {
                 w->showMinimized();
                 break;
@@ -1179,9 +1230,10 @@ void GuiBehind::createActions()
     });
 
     restoreAction = new QAction(tr("&Restore"), this);
-    connect(restoreAction, &QAction::triggered, []() {
+    connect(restoreAction, &QAction::triggered, this, []() {
         QWidgetList topLevels = QApplication::topLevelWidgets();
-        for (QWidget *w : topLevels) {
+        for (int i = 0; i < topLevels.size(); ++i) {
+            QWidget *w = topLevels.at(i);
             if (w->isWindow()) {
                 w->showNormal();
                 break;
@@ -1270,4 +1322,22 @@ void GuiBehind::changeThemeColor(QString color)
 {
     mTheme.setThemeColor(color);
     mSettings.saveThemeColor(color);
+}
+
+void GuiBehind::receiveFileCancelled()
+{
+    // You can add error handling or user notification here if needed.
+    // For now, just reset the progress status.
+#if defined(Q_OS_WIN)
+    HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
+    WinHelper::WinTaskbarProgressHelper::setError(hwnd);
+    if (!WinHelper::WinTaskbarProgressHelper::isMainWindowActive()) {
+        WinHelper::WinTaskbarProgressHelper::flashWindowIfNotActive(hwnd);
+    }
+    QTimer::singleShot(2000, this, []() {
+        WinHelper::WinTaskbarProgressHelper::clearProgress();
+    });
+#else
+    resetProgressStatus();
+#endif
 }

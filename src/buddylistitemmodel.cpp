@@ -107,7 +107,7 @@ void BuddyListItemModel::addBuddy(QString ip, qint16 port, QString username, QSt
 
 void BuddyListItemModel::addBuddy(Peer &peer)
 {
-    QRegularExpression rx("^(.*)\\sat\\s(.*)\\s\\((.*)\\)$");
+    static const QRegularExpression rx("^(.*)\\sat\\s(.*)\\s\\((.*)\\)$"); // Use static
     QRegularExpressionMatch match = rx.match(peer.name);
     QString username, system, platform;
     if (match.hasMatch()) {
