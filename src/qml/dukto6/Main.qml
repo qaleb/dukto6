@@ -11,7 +11,7 @@ ApplicationWindow {
     maximumWidth: 360
     minimumHeight: 600
     minimumWidth: 360
-    title: qsTr("DropIt")
+    title: qsTr("Dukto 6")
 
     Component.onCompleted: {
         var rect = guiBehind.windowGeometry();
