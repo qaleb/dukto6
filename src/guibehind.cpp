@@ -28,6 +28,7 @@
 #define NETWORK_PORT 4644 // 6742
 
 #if defined(Q_OS_ANDROID)
+#include <QtCore/private/qandroidextras_p.h>
 #endif
 
 // The constructor is private and can only be called within the singleton instance method

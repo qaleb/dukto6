@@ -90,8 +90,9 @@ ApplicationWindow {
     }
 
     onClosing: function(close) {
+        console.log("onClosing called: " + duktoOverlay.state);
         if (Qt.platform.os === "android") {
-            if (duktoOverlay.state !== "") {
+            if (duktoOverlay.state !== "" && duktoOverlay.state !== "termspage") {
                 duktoOverlay.state = ""
                 return close.accepted = false
             }
