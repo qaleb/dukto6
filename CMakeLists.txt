@@ -3,10 +3,36 @@ cmake_minimum_required(VERSION 3.16)
 project(dukto VERSION 6.9.6 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include(GNUInstallDirs)
 
 # Find required Qt6 modules
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Widgets Qml)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network Quick Qml)
+if(ANDROID)
+    # The existing Android permission bridge uses qandroidextras_p.h.
+    find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
+else()
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+endif()
+
+option(DUKTO_BUILD_TESTS "Build backend regression tests" OFF)
+if(DUKTO_BUILD_TESTS AND NOT ANDROID)
+    enable_testing()
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(discovery_tests
+        tests/discovery_tests.cpp
+        src/duktoprotocol.cpp src/duktoprotocol.h
+        src/platform.cpp src/settings.cpp src/settings.h
+        src/theme.cpp src/theme.h
+    )
+    target_include_directories(discovery_tests PRIVATE src)
+    target_link_libraries(discovery_tests PRIVATE Qt6::Test Qt6::Network Qt6::Widgets)
+    if(WIN32)
+        target_link_libraries(discovery_tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME discovery COMMAND discovery_tests)
+endif()
 
 # Set Qt policies
 qt_policy(SET QTP0001 NEW)
@@ -15,8 +41,9 @@ qt_policy(SET QTP0004 NEW)
 
 # Embed Windows icon in the executable
 if(WIN32)
-    set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/src/dukto.rc")
-    set_source_files_properties(${app_icon_resource_windows} PROPERTIES LANGUAGE RC)
+    enable_language(RC)
+    set(app_icon_resource_windows "${CMAKE_CURRENT_BINARY_DIR}/dukto.rc")
+    configure_file(cmake/dukto.rc.in "${app_icon_resource_windows}" @ONLY)
 endif()
 
 # Main source files
@@ -117,26 +144,16 @@ target_link_libraries(dukto6
     PRIVATE Qt6::Quick
     PRIVATE Qt6::Qml
     PRIVATE Qt6::Core
+    PRIVATE Qt6::Network
 )
-if(NOT ANDROID)
+if(ANDROID)
+    target_link_libraries(dukto6 PRIVATE Qt6::CorePrivate)
+else()
     target_link_libraries(dukto6 PRIVATE Qt6::Widgets)
 endif()
-
-# Linux: Strip binary to reduce size
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-    add_custom_command(TARGET dukto6 POST_BUILD
-        COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:dukto6>
-        COMMENT "Stripping binary to reduce size"
-    )
-endif()
-
-# Deploy QML app script only for non-Android platforms
-if(NOT ANDROID)
-    qt_generate_deploy_qml_app_script(
-        TARGET dukto6
-        OUTPUT_SCRIPT deploy_script
-    )
-    install(SCRIPT ${deploy_script})
+if(WIN32)
+    # COM taskbar progress and window notifications in winhelper.h.
+    target_link_libraries(dukto6 PRIVATE ole32 uuid user32)
 endif()
 
 # Assets (fonts, icons, etc.)
@@ -177,7 +194,6 @@ qt_add_resources(dukto6 "assets"
         src/assets/TopShadow.png
         src/assets/UnknownLogo.png
         src/assets/WindowsLogo.png
-        # src/dukto.rc
 )
 
 # Linux-specific desktop integration
@@ -189,12 +205,20 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
 endif()
 
 # Installation rules
-include(GNUInstallDirs)
 install(TARGETS dukto6
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Deploy after installing the executable so Qt can inspect its dependencies.
+if(NOT ANDROID)
+    qt_generate_deploy_qml_app_script(
+        TARGET dukto6
+        OUTPUT_SCRIPT deploy_script
+    )
+    install(SCRIPT ${deploy_script})
+endif()
 
 # Packaging (DEB format for Linux)
 if(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -207,14 +231,17 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libgcc-s1")
     set(CPACK_GENERATOR "DEB")
+    # Keep symbols in development builds; strip only the packaged copy.
+    set(CPACK_STRIP_FILES ON)
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
     include(CPack)
 endif()
 
-# On Linux, set the output directory for the executable to avoid conflict with the dukto6 directory
+# Linux executable layout and lookup for bundled Qt libraries.
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     set_target_properties(dukto6 PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
     )
 endif()

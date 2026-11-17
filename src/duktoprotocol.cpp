@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QNetworkInterface>
 #include <QTimer>
+#include <cstring>
 
 #include "platform.h"
 
@@ -55,13 +56,9 @@ void DuktoProtocol::setPorts(qint16 udp, qint16 tcp)
 
 QString DuktoProtocol::getSystemSignature()
 {
-    static QString signature = "";
-    if (signature != "") return signature;
-
-    signature = Platform::getSystemUsername()
-                + " at " + Platform::getHostname()
-                + " (" + Platform::getPlatformName() + ")";
-    return signature;
+    return Platform::getSystemUsername()
+           + " at " + Platform::getHostname()
+           + " (" + Platform::getPlatformName() + ")";
 }
 
 void DuktoProtocol::sayHello(QHostAddress dest)
@@ -128,53 +125,60 @@ void DuktoProtocol::sayGoodbye()
 
 void DuktoProtocol::newUdpData()
 {
+    // Refresh once per batch so interface changes are picked up without polling.
+    const auto localAddresses = QNetworkInterface::allAddresses();
     while (mSocket->hasPendingDatagrams()) {
         QByteArray datagram;
-        const int maxLength = 65536;  // Theoretical max length in IPv4
+        const qint64 pendingSize = mSocket->pendingDatagramSize();
+        if (pendingSize < 0) break;
+        const int maxLength = qMin<qint64>(pendingSize, 65536);
         datagram.resize(maxLength);
-        // datagram.resize(mSocket->pendingDatagramSize());
         QHostAddress sender;
         quint16 senderPort;
         int size = mSocket->readDatagram(datagram.data(), datagram.size(), &sender, &senderPort);
+        if (size < 0) break;
+        if (size == 0) continue;
         datagram.resize(size);
-        handleMessage(datagram, sender);
+        handleMessage(datagram, sender, localAddresses);
     }
 }
 
-void DuktoProtocol::handleMessage(QByteArray &data, QHostAddress &sender)
+void DuktoProtocol::handleMessage(QByteArray &data, QHostAddress &sender,
+                                 const QList<QHostAddress> &localAddresses)
 {
-    char msgtype = data.at(0);
-
-    switch(msgtype)
-    {
-    case 0x01:  // HELLO (broadcast)
-    case 0x02:  // HELLO (unicast)
-        data.remove(0, 1);
-        if (data != getSystemSignature()) {
-            mPeers[sender.toString()] = Peer(sender, QString::fromUtf8(data), DEFAULT_UDP_PORT);
-            if (msgtype == 0x01) sayHello(sender, DEFAULT_UDP_PORT);
-            emit peerListAdded(mPeers[sender.toString()]);
-        }
-        break;
-
-    case 0x03:  // GOODBYE
-        emit peerListRemoved(mPeers[sender.toString()]);
-        mPeers.remove(sender.toString());
-        break;
-
-    case 0x04:  // HELLO (broadcast) with PORT
-    case 0x05:  // HELLO (unicast) with PORT
-        data.remove(0, 1);
-        qint16 port = *((qint16*) data.constData());
-        data.remove(0, 2);
-        if (data != getSystemSignature()) {
-            mPeers[sender.toString()] = Peer(sender, QString::fromUtf8(data), port);
-            if (msgtype == 0x04) sayHello(sender, port);
-            emit peerListAdded(mPeers[sender.toString()]);
-        }
-        break;
+    if (data.isEmpty() || sender.isNull() || sender.isLoopback()) return;
+    for (const auto &address : localAddresses) {
+        // A dual-stack socket may report IPv4 senders as ::ffff:a.b.c.d.
+        if (sender.isEqual(address, QHostAddress::ConvertV4MappedToIPv4)) return;
     }
 
+    char msgtype = data.at(0);
+    const QString key = sender.toString();
+    if (msgtype == 0x03) {
+        const auto peer = mPeers.find(key);
+        if (peer != mPeers.end()) {
+            const Peer removed = peer.value();
+            mPeers.erase(peer);
+            emit peerListRemoved(removed);
+        }
+        return;
+    }
+
+    data.remove(0, 1);
+    quint16 port = DEFAULT_UDP_PORT;
+    if (msgtype == 0x04 || msgtype == 0x05) {
+        if (data.size() < int(sizeof(port)) + 1) return;
+        std::memcpy(&port, data.constData(), sizeof(port));
+        data.remove(0, sizeof(port));
+    } else if (msgtype != 0x01 && msgtype != 0x02) {
+        return;
+    }
+    if (port == 0 || data.isEmpty() || data.size() > 4096) return;
+
+    const Peer peer(sender, QString::fromUtf8(data), qint16(port));
+    mPeers.insert(key, peer);
+    if (msgtype == 0x01 || msgtype == 0x04) sayHello(sender, qint16(port));
+    emit peerListAdded(peer);
 }
 
 // Incoming TCP connection request
@@ -834,6 +838,11 @@ void DuktoProtocol::sendToAllBroadcast(QByteArray *packet, qint16 port)
     // Iterate interfaces
     for (int i = 0; i < ifaces.size(); i++)
     {
+        const auto flags = ifaces[i].flags();
+        if (!(flags & QNetworkInterface::IsUp)
+            || !(flags & QNetworkInterface::CanBroadcast)
+            || (flags & QNetworkInterface::IsLoopBack)) continue;
+
         // Iterate all interface IPs
         QList<QNetworkAddressEntry> addrs = ifaces[i].addressEntries();
 
@@ -865,5 +874,5 @@ void DuktoProtocol::updateBuddyName()
     sayGoodbye();
 
     // Send packet with the new name
-    sayHello(QHostAddress::Broadcast, true);
+    sayHello(QHostAddress::Broadcast);
 }

@@ -5,11 +5,24 @@
 #include <QQmlApplicationEngine>
 #include <QIcon>
 #include <QFile>
+#include <QStringList>
 
 #include "guibehind.h"
 
 int main(int argc, char *argv[])
 {
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    // Qt 6.9's Adwaita Wayland decoration ignores the title-bar button hints.
+    // Prefer XWayland on GNOME so our fixed-size window can omit maximize.
+    // Keep explicit platform choices and native Wayland-only sessions working.
+    if (qEnvironmentVariable("XDG_SESSION_TYPE") == "wayland"
+        && qEnvironmentVariable("XDG_CURRENT_DESKTOP").split(':').contains("GNOME", Qt::CaseInsensitive)
+        && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")
+        && !qEnvironmentVariableIsEmpty("DISPLAY")) {
+        qputenv("QT_QPA_PLATFORM", "xcb;wayland");
+    }
+#endif
+
 #if defined(Q_OS_WIN) || (defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID))
     QApplication app(argc, argv);
 #else

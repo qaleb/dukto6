@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Dukto
-Exec=appdukto6
+Exec=dukto6
 Icon=dukto
 Type=Application
 Categories=Utility;Network;

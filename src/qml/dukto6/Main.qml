@@ -5,6 +5,12 @@ import QtQuick.Window
 ApplicationWindow {
     id: rootWindow
     readonly property bool isAndroid: Qt.platform.os === "android"
+    // Match the fixed desktop size with title-bar controls that omit maximize.
+    flags: (Qt.platform.os === "linux" || Qt.platform.os === "windows")
+           ? (Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint
+              | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint
+              | Qt.WindowCloseButtonHint)
+           : Qt.Window
     width: isAndroid ? Screen.width : 360
     height: isAndroid ? Screen.height : 600
     visible: true

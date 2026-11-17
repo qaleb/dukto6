@@ -58,6 +58,7 @@ signals:
     void transferStatusUpdate(qint64 total, qint64 partial);
 
 private:
+    friend class DiscoveryTest;
     QString getSystemSignature();
     QStringList* expandTree(QStringList files);
     void addRecursive(QStringList *e, QString path);
@@ -67,7 +68,8 @@ private:
     void closeCurrentTransfer(bool aborted = false);
     void beginIncomingTransfer(QTcpSocket *socket);
 
-    void handleMessage(QByteArray &data, QHostAddress &sender);
+    void handleMessage(QByteArray &data, QHostAddress &sender,
+                       const QList<QHostAddress> &localAddresses);
     void updateStatus();
 
     QUdpSocket *mSocket;            // Socket UDP segnalazione
