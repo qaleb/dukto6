@@ -20,6 +20,8 @@ public:
     QString themeColor();
     void saveShowTermsOnStart(bool show);
     bool showTermsOnStart();
+    void saveConfirmBeforeReceive(bool enabled);
+    bool confirmBeforeReceive();
     void saveBuddyName(QString name);
     QString buddyName();
 

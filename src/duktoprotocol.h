@@ -38,6 +38,8 @@ public slots:
     void readNewData();
     void closedConnection();
     void closedConnectionTmp();
+    void acceptIncomingTransfer();
+    void rejectIncomingTransfer();
     void sendMetaData();
     void sendData(qint64 b);
     void sendConnectError(QAbstractSocket::SocketError);
@@ -49,6 +51,7 @@ signals:
     void sendFileError(int code);
     void sendFileAborted();
     void receiveFileStart(QString senderIp);
+    void incomingTransferRequested(QString senderIp);
     void receiveFileComplete(QStringList *files, qint64 totalSize);
     void receiveTextComplete(QString *text, qint64 totalSize);
     void receiveFileCancelled();
@@ -62,6 +65,7 @@ private:
     QByteArray nextElementHeader();
     void sendToAllBroadcast(QByteArray *packet, qint16 port);
     void closeCurrentTransfer(bool aborted = false);
+    void beginIncomingTransfer(QTcpSocket *socket);
 
     void handleMessage(QByteArray &data, QHostAddress &sender);
     void updateStatus();
@@ -69,6 +73,7 @@ private:
     QUdpSocket *mSocket;            // Socket UDP segnalazione
     QTcpServer *mTcpServer;         // Socket TCP attesa dati
     QTcpSocket *mCurrentSocket;     // Socket TCP dell'attuale trasferimento file
+    QTcpSocket *mPendingIncomingSocket; // Socket TCP in attesa di conferma ricezione
 
     QHash<QString, Peer> mPeers;    // Elenco peer individuati
 

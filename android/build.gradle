@@ -15,6 +15,12 @@ repositories {
     mavenCentral()
 }
 
+def releaseKeystoreFile = (project.findProperty('androidReleaseKeystoreFile') ?: System.getenv('ANDROID_RELEASE_KEYSTORE_FILE'))?.toString()
+def releaseKeystorePassword = (project.findProperty('androidReleaseKeystorePassword') ?: System.getenv('ANDROID_RELEASE_KEYSTORE_PASSWORD'))?.toString()
+def releaseKeyAlias = (project.findProperty('androidReleaseKeyAlias') ?: System.getenv('ANDROID_RELEASE_KEY_ALIAS'))?.toString()
+def releaseKeyPassword = (project.findProperty('androidReleaseKeyPassword') ?: System.getenv('ANDROID_RELEASE_KEY_PASSWORD'))?.toString()
+def hasReleaseSigning = releaseKeystoreFile && releaseKeystorePassword && releaseKeyAlias && releaseKeyPassword
+
 apply plugin: qtGradlePluginType
 
 dependencies {
@@ -40,7 +46,9 @@ android {
 
     namespace androidPackageName
     compileSdkVersion androidCompileSdkVersion
-    buildToolsVersion androidBuildToolsVersion
+    if (project.hasProperty('androidBuildToolsVersion')) {
+        buildToolsVersion androidBuildToolsVersion
+    }
     ndkVersion androidNdkVersion
 
     sourceSets {
@@ -58,6 +66,7 @@ android {
 
     tasks.withType(JavaCompile) {
         options.incremental = true
+        options.compilerArgs += ['-Xlint:-options']
     }
 
     compileOptions {
@@ -79,5 +88,24 @@ android {
         minSdkVersion qtMinSdkVersion
         targetSdkVersion qtTargetSdkVersion
         ndk.abiFilters = qtTargetAbiList.split(",")
+    }
+
+    if (hasReleaseSigning) {
+        signingConfigs {
+            release {
+                storeFile file(releaseKeystoreFile)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+
+        buildTypes {
+            release {
+                signingConfig signingConfigs.release
+            }
+        }
+    } else {
+        logger.lifecycle('Release signing credentials not fully configured. Release outputs will be unsigned unless signing properties/env vars are provided.')
     }
 }

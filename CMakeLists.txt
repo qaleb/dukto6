@@ -71,6 +71,7 @@ qt_add_qml_module(dukto6
         src/qml/dukto6/ColorBox.qml
         src/qml/dukto6/ColorPicker.qml
         src/qml/dukto6/ColorSlider.qml
+        src/qml/dukto6/ConfirmReceivePage.qml
         src/qml/dukto6/ColorUtils.js
         src/qml/dukto6/DialogNavBar.qml
         src/qml/dukto6/DuktoInner.qml
@@ -114,10 +115,12 @@ target_compile_definitions(dukto6 PRIVATE APP_VERSION="${PROJECT_VERSION}")
 # Link libraries
 target_link_libraries(dukto6
     PRIVATE Qt6::Quick
-    PRIVATE Qt6::Widgets
     PRIVATE Qt6::Qml
     PRIVATE Qt6::Core
 )
+if(NOT ANDROID)
+    target_link_libraries(dukto6 PRIVATE Qt6::Widgets)
+endif()
 
 # Linux: Strip binary to reduce size
 if(UNIX AND NOT APPLE AND NOT ANDROID)

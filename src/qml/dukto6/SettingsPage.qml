@@ -133,6 +133,33 @@ Rectangle {
         }
     }
 
+    Row {
+        id: confirmReceiveRow
+        anchors {
+            left: parent.left
+            right: parent.right
+            top: buttonPath.bottom
+            leftMargin: 17
+            rightMargin: 17
+            topMargin: 12
+        }
+        spacing: 10
+
+        SText {
+            width: parent.width - confirmReceiveSwitch.width - 10
+            font.pixelSize: 14
+            color: theme.color5
+            wrapMode: Text.Wrap
+            text: qsTr("Confirm before receiving files")
+        }
+
+        Switch {
+            id: confirmReceiveSwitch
+            checked: guiBehind.confirmBeforeReceive
+            onToggled: guiBehind.confirmBeforeReceive = checked
+        }
+    }
+
     FolderDialog {
         id: folderDialog
         title: qsTr("Change Folder")
@@ -147,7 +174,7 @@ Rectangle {
         id: labelBuddyName
         anchors{
             left: parent.left
-            top: buttonPath.bottom
+            top: confirmReceiveRow.bottom
             leftMargin: 17
             topMargin: 15
         }

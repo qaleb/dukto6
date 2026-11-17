@@ -17,7 +17,7 @@
 
 DuktoProtocol::DuktoProtocol()
     : mSocket(NULL), mTcpServer(NULL), mCurrentSocket(NULL),
-    mCurrentFile(NULL), mFilesToSend(NULL)
+    mPendingIncomingSocket(NULL), mCurrentFile(NULL), mFilesToSend(NULL)
 {
     mLocalUdpPort = DEFAULT_UDP_PORT;
     mLocalTcpPort = DEFAULT_TCP_PORT;
@@ -30,6 +30,7 @@ DuktoProtocol::DuktoProtocol()
 DuktoProtocol::~DuktoProtocol()
 {
     if (mCurrentSocket) delete mCurrentSocket;
+    if (mPendingIncomingSocket) delete mPendingIncomingSocket;
     if (mSocket) delete mSocket;
     if (mTcpServer) delete mTcpServer;
     if (mCurrentFile) delete mCurrentFile;
@@ -192,28 +193,48 @@ void DuktoProtocol::newIncomingConnection()
         s->close();
         return;
     }
+    mPendingIncomingSocket = s;
+    emit incomingTransferRequested(s->peerAddress().toString());
+}
 
+void DuktoProtocol::acceptIncomingTransfer()
+{
+    if (!mPendingIncomingSocket)
+        return;
+    beginIncomingTransfer(mPendingIncomingSocket);
+    mPendingIncomingSocket = NULL;
+}
+
+void DuktoProtocol::rejectIncomingTransfer()
+{
+    if (!mPendingIncomingSocket)
+        return;
+    mPendingIncomingSocket->disconnectFromHost();
+    mPendingIncomingSocket->close();
+    mPendingIncomingSocket->deleteLater();
+    mPendingIncomingSocket = NULL;
+}
+
+void DuktoProtocol::beginIncomingTransfer(QTcpSocket *socket)
+{
     // Update GUI
-    emit receiveFileStart(s->peerAddress().toString());
+    emit receiveFileStart(socket->peerAddress().toString());
 
     // Set current TCP socket
-    mCurrentSocket = s;
+    mCurrentSocket = socket;
 
     // Wait for connection header (timeout 10 sec)
-    if (!s->waitForReadyRead(10000))
+    if (!mCurrentSocket->waitForReadyRead(10000))
     {
-        // Did not receive the connection header, close
         mCurrentSocket->close();
-        delete mCurrentSocket;
+        mCurrentSocket->deleteLater();
         mCurrentSocket = NULL;
         return;
     }
 
-    // Register socket event handlers
     connect(mCurrentSocket, SIGNAL(readyRead()), this, SLOT(readNewData()), Qt::DirectConnection);
     connect(mCurrentSocket, SIGNAL(disconnected()), this, SLOT(closedConnectionTmp()), Qt::QueuedConnection);
 
-    // Initialize variables
     mIsReceiving = true;
     mTotalReceivedData = 0;
     mElementSize = -1;
@@ -223,15 +244,10 @@ void DuktoProtocol::newIncomingConnection()
     mReceivingText = false;
     mRecvStatus = FILENAME;
 
-    // -- Read general header --
-    // Number of entities to receive
     mCurrentSocket->read((char*) &mElementsToReceiveCount, sizeof(qint64));
-    // Total size
     mCurrentSocket->read((char*) &mTotalSize, sizeof(qint64));
 
-    // Start reading file data
     readNewData();
-
 }
 
 // Main reading process

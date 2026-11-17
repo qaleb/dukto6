@@ -4,10 +4,13 @@
 #include <QObject>
 #include <QQmlApplicationEngine>
 #include <QClipboard>
+#include <QQueue>
 
+#if defined(Q_OS_WIN)
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QAction>
+#endif
 
 #include "buddylistitemmodel.h"
 #include "recentlistitemmodel.h"
@@ -43,6 +46,8 @@ class GuiBehind : public QObject
     Q_PROPERTY(QString messagePageTitle READ messagePageTitle WRITE setMessagePageTitle NOTIFY messagePageTitleChanged)
     Q_PROPERTY(bool showTermsOnStart READ showTermsOnStart WRITE setShowTermsOnStart NOTIFY showTermsOnStartChanged)
     Q_PROPERTY(bool showUpdateBanner READ showUpdateBanner WRITE setShowUpdateBanner NOTIFY showUpdateBannerChanged)
+    Q_PROPERTY(bool confirmBeforeReceive READ confirmBeforeReceive WRITE setConfirmBeforeReceive NOTIFY confirmBeforeReceiveChanged)
+    Q_PROPERTY(QString pendingIncomingSender READ pendingIncomingSender NOTIFY pendingIncomingSenderChanged)
     Q_PROPERTY(bool clipboardTextAvailable READ clipboardTextAvailable NOTIFY clipboardTextAvailableChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 
@@ -90,6 +95,9 @@ public:
     void setShowTermsOnStart(bool show);
     bool showUpdateBanner();
     void setShowUpdateBanner(bool show);
+    bool confirmBeforeReceive();
+    void setConfirmBeforeReceive(bool enabled);
+    QString pendingIncomingSender();
     //    void setBuddyName(QString name);
 
 
@@ -126,6 +134,8 @@ signals:
     void messagePageBackStateChanged();
     void showTermsOnStartChanged();
     void showUpdateBannerChanged();
+    void confirmBeforeReceiveChanged();
+    void pendingIncomingSenderChanged();
     void buddyNameChanged();
 
     // Received by QML
@@ -150,6 +160,7 @@ public slots:
     // Called by Dukto protocol
     void peerListAdded(Peer peer);
     void peerListRemoved(Peer peer);
+    void incomingTransferRequested(QString senderIp);
     void receiveFileStart(QString senderIp);
     void transferStatusUpdate(qint64 total, qint64 partial);
     void receiveFileComplete(QStringList *files, qint64 totalSize);
@@ -176,14 +187,25 @@ public slots:
     void setBuddyName(QString name);
     void resetProgressStatus();
     void abortTransfer();
+    void acceptIncomingTransfer();
+    void rejectIncomingTransfer();
     void sendBuddyDroppedFiles(const QStringList &files);
     bool canAcceptDrop();
     void sendDroppedFiles(const QStringList &files);
 
 private slots:
+#if defined(Q_OS_WIN)
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
+#endif
 
 private:
+    struct PendingTransfer {
+        bool isText = false;
+        QStringList files;
+        QString text;
+        int retriesRemaining = 0;
+    };
+
     // Make constructor private to prevent direct instantiation
     explicit GuiBehind(QQmlApplicationEngine &engine, QObject *parent = nullptr);
     GuiBehind(const GuiBehind&) = delete; // Delete copy constructor
@@ -215,10 +237,18 @@ private:
     QString mMessagePageText;
     QString mMessagePageTitle;
     QString mMessagePageBackState;
+    QString mPendingIncomingSender;
     bool mShowUpdateBanner;
     QString mScreenTempPath;
+    QQueue<PendingTransfer> mPendingTransfers;
+    PendingTransfer mActiveTransfer;
+    bool mHasActiveTransfer = false;
 
     bool prepareStartTransfer(QString *ip, qint16 *port);
+    void executeTransfer(const PendingTransfer &transfer);
+    void processQueuedTransfer();
+    void queueTransfer(const PendingTransfer &transfer);
+    void queueRetry(const PendingTransfer &transfer);
     void startTransfer(QStringList files);
     void startTransfer(QString text);
 
@@ -234,6 +264,8 @@ private:
 
     #if defined(Q_OS_ANDROID)
     QList<QString> mTempFilesForTransfer;
+    void setAndroidTransferActive(bool active);
+    QString takePendingAndroidShareUris();
     #endif
 };
 

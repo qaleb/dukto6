@@ -81,3 +81,8 @@ CMakeLists.txt.user*
 .uic/
 /build*/
 .vscode/
+
+# Android build outputs and local SDK configuration
+/android/.gradle/
+/android/build/
+/android/local.properties

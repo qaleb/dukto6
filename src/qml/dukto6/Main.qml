@@ -1,16 +1,19 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 
 ApplicationWindow {
     id: rootWindow
-    width: 360
-    height: 600
+    readonly property bool isAndroid: Qt.platform.os === "android"
+    width: isAndroid ? Screen.width : 360
+    height: isAndroid ? Screen.height : 600
     visible: true
+    visibility: isAndroid ? Window.FullScreen : Window.Windowed
     color: theme.color6
-    maximumHeight: 600
-    maximumWidth: 360
-    minimumHeight: 600
-    minimumWidth: 360
+    maximumHeight: isAndroid ? 16777215 : 600
+    maximumWidth: isAndroid ? 16777215 : 360
+    minimumHeight: isAndroid ? 0 : 600
+    minimumWidth: isAndroid ? 0 : 360
     title: qsTr("Dukto 6")
 
     Component.onCompleted: {

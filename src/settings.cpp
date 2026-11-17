@@ -85,6 +85,17 @@ bool Settings::showTermsOnStart()
     return mSettings.value("R6/ShowTermsOnStart", true).toBool();
 }
 
+void Settings::saveConfirmBeforeReceive(bool enabled)
+{
+    mSettings.setValue("R6/ConfirmBeforeReceive", enabled);
+    mSettings.sync();
+}
+
+bool Settings::confirmBeforeReceive()
+{
+    return mSettings.value("R6/ConfirmBeforeReceive", false).toBool();
+}
+
 QString Settings::buddyName()
 {
     // Retrieve the last saved name (if any)

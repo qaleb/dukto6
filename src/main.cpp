@@ -1,4 +1,7 @@
-#include <QApplication> // Add this include
+#include <QGuiApplication>
+#if !defined(Q_OS_ANDROID)
+#include <QApplication>
+#endif
 #include <QQmlApplicationEngine>
 #include <QIcon>
 #include <QFile>
@@ -7,8 +10,8 @@
 
 int main(int argc, char *argv[])
 {
-#if defined(Q_OS_WIN) || defined(Q_OS_UNIX)
-    QApplication app(argc, argv); // Use QApplication for desktop
+#if defined(Q_OS_WIN) || (defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID))
+    QApplication app(argc, argv);
 #else
     QGuiApplication app(argc, argv);
 #endif

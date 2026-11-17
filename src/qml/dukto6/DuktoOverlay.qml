@@ -87,6 +87,15 @@ Rectangle {
         visible: false
     }
 
+    ConfirmReceivePage {
+        id: confirmReceivePage
+        anchors.centerIn: parent
+        width: parent.width
+        height: parent.height
+        opacity: 0
+        visible: false
+    }
+
     TermsPage {
         id: termsPage
         anchors.centerIn: parent
@@ -176,6 +185,19 @@ Rectangle {
             }
         },
         State {
+            name: "confirmreceive"
+            PropertyChanges {
+                target: confirmReceivePage
+                opacity: 1
+                visible: true
+            }
+            PropertyChanges {
+                target: disabler
+                opacity: 1
+                visible: true
+            }
+        },
+        State {
             name: "termspage"
             PropertyChanges {
                 target: termsPage
@@ -192,4 +214,3 @@ Rectangle {
         }
     ]
 }
-
