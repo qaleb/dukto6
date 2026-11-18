@@ -328,7 +328,7 @@ void GuiBehind::receiveFileComplete(QStringList files, qint64 totalSize) {
 #if !defined(Q_OS_ANDROID)
     QDir d(".");
     if (files.size() == 1)
-        mRecentList.addRecent(files.at(0), d.absoluteFilePath(files.at(0)), "file", mCurrentTransferBuddy, totalSize);
+        mRecentList.addRecent(QFileInfo(files.at(0)).fileName(), d.absoluteFilePath(files.at(0)), "file", mCurrentTransferBuddy, totalSize);
     else
         mRecentList.addRecent(tr("Files and folders"), d.absolutePath(), "misc", mCurrentTransferBuddy, totalSize);
 #else

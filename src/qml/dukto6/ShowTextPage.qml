@@ -8,6 +8,7 @@ Rectangle {
     color: theme.color6
     signal back()
     signal backOnSend()
+    readonly property bool isAndroid: Qt.platform.os === "android"
     property alias textInputFocus: editor.focus
     // QInputMethod reports the keyboard rectangle in window coordinates. Only
     // subtract its overlap; a window already resized by the OS needs no inset.
@@ -30,6 +31,7 @@ Rectangle {
         guiBehind.sendText();
     }
     function openEditingMenu() {
+        if (isAndroid) return;
         editingMenu.popup(editButton, 0, -editingMenu.implicitHeight);
     }
     onVisibleChanged: {
@@ -46,6 +48,7 @@ Rectangle {
         ColorImage {
             id: backIcon
             x: 8; y: 8; width: 40; height: 40
+            sourceSize: Qt.size(width, height)
             source: "qrc:/src/assets/ArrowBack.svg"; color: theme.color5
             Accessible.name: qsTr("Back")
             MouseArea {
@@ -95,10 +98,12 @@ Rectangle {
                     background: Item {}
                     Accessible.name: guiBehind.textSnippetSending ? qsTr("Message to send") : qsTr("Received message")
                     onPressAndHold: event => {
-                        if (Qt.platform.os === "android") {
-                            // Let Qt's Android input context supply touch-selection
-                            // handles and its native Cut/Copy/Paste toolbar.
-                            event.accepted = false;
+                        if (showTextPage.isAndroid) {
+                            // Select at the touch point and consume the release so
+                            // TextArea cannot collapse Android's native selection.
+                            cursorPosition = positionAt(event.x, event.y);
+                            selectWord();
+                            event.accepted = true;
                             return;
                         }
                         if (!selectedText.length) selectWord();
@@ -106,6 +111,7 @@ Rectangle {
                         showTextPage.openEditingMenu();
                     }
                     TapHandler {
+                        enabled: !showTextPage.isAndroid
                         acceptedButtons: Qt.RightButton
                         onTapped: showTextPage.openEditingMenu()
                     }
@@ -125,13 +131,15 @@ Rectangle {
             ActionButton {
                 id: editButton
                 objectName: "snippetEditButton"
+                visible: !showTextPage.isAndroid
                 width: 70; height: parent.height
                 text: guiBehind.textSnippetSending ? qsTr("Edit") : qsTr("Select")
                 onClicked: showTextPage.openEditingMenu()
             }
             ActionButton {
+                id: pasteButton
                 objectName: "snippetPasteButton"
-                width: guiBehind.textSnippetSending ? 100 : parent.width - editButton.width - parent.spacing
+                width: guiBehind.textSnippetSending ? 100 : parent.width - (editButton.visible ? editButton.width + parent.spacing : 0)
                 height: parent.height
                 text: guiBehind.textSnippetSending ? qsTr("Paste") : qsTr("Copy")
                 enabled: guiBehind.textSnippetSending ? editor.canPaste : editor.text.length > 0
@@ -143,7 +151,7 @@ Rectangle {
             ActionButton {
                 objectName: "snippetSendButton"
                 visible: guiBehind.textSnippetSending
-                width: parent.width - 186
+                width: parent.width - pasteButton.width - parent.spacing - (editButton.visible ? editButton.width + parent.spacing : 0)
                 height: parent.height
                 text: qsTr("Send")
                 primary: true

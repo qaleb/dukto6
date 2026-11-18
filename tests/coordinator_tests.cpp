@@ -224,6 +224,10 @@ private slots:
                 QCOMPARE(backend->mRecentList.item(0)->data(RecentListItemModel::Value).toString(), QString::fromUtf8(content));
             } else {
                 QFile file(mSettings.filePath("confirmation-regression.txt"));
+                auto *recent = backend->mRecentList.item(0);
+                QCOMPARE(recent->data(RecentListItemModel::Name).toString(), QString("confirmation-regression.txt"));
+                QCOMPARE(recent->data(RecentListItemModel::Value).toString(), file.fileName());
+                QCOMPARE(recent->data(RecentListItemModel::Size).toString(), QString::number(content.size()) + " B");
                 QVERIFY(file.open(QIODevice::ReadOnly));
                 QCOMPARE(file.readAll(), content);
                 file.close();

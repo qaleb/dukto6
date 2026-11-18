@@ -233,6 +233,17 @@ private slots:
         history.addRecent("Text",text,"text","peer",text.size());
         QCOMPARE(history.rowCount(),1);
     }
+    void historyKeepsDisplayNameSeparateFromOpenTarget() {
+        RecentListItemModel history;
+        const QString name = QString::fromUtf8("Résumé report.pdf");
+        // Android document providers supply a display name independently of
+        // their opaque URI. Neither the URI nor file size belongs in the title.
+        const QString uri = "content://media/external/downloads/1042";
+        history.addRecent(name, uri, "file", "phone", 2048);
+        QCOMPARE(history.item(0)->data(RecentListItemModel::Name).toString(), name);
+        QCOMPARE(history.item(0)->data(RecentListItemModel::Value).toString(), uri);
+        QCOMPARE(history.item(0)->data(RecentListItemModel::Size).toString(), QString("2.0 KB"));
+    }
     void refusesInsufficientStorageBeforeWriting() {
         QTemporaryDir directory;
         const qint64 available=QStorageInfo(directory.path()).bytesAvailable();

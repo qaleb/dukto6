@@ -179,13 +179,22 @@ received-files banner. Optional shared-folder and battery controls remain there.
 The Android footer centers Addresses and Settings with persistent labels.
 Desktop also retains the Received shortcut.
 
-The text page keeps Paste, Edit and Send in an action bar above the on-screen
+The Android text page keeps Paste and Send in an action bar above the on-screen
 keyboard. Android reports its visible window frame through the existing JNI
 bridge, covering fullscreen devices that do not resize or provide a useful Qt
 keyboard rectangle. No keyboard polling is used. Desktop retains its full editor
-height. Ctrl+Enter sends; normal Enter inserts a newline. Mouse/keyboard selection,
-long-press selection, and the Edit menu provide Cut, Copy, Paste, Select all, Undo
-and Redo; received messages are read-only and offer selection and copying.
+height. Ctrl+Enter sends; normal Enter inserts a newline. Android uses native
+touch-selection handles and its contextual Cut/Copy/Paste/Select all toolbar,
+independently of the keyboard's clipboard features. Desktop retains the Edit
+button, right-click menu and keyboard shortcuts. Received messages are read-only
+and offer selection and copying.
+
+Recent files use their filename as the title, with size in the secondary line;
+the complete path or provider URI remains the open target. Long filenames elide
+in the middle to retain the extension, and desktop hover reveals the full path.
+Navigation, recent and common device icons use SVGs rasterized at the displayed
+size and Qt's window pixel ratio. Avatar images use mipmaps during scaling and
+flip animations.
 
 Very short Android transfers queue the foreground service's STOP after START,
 instead of destroying a service that has not yet called startForeground. This

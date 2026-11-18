@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto VERSION 6.9.10 LANGUAGES CXX)
+project(dukto VERSION 6.9.11 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -234,8 +234,8 @@ qt_add_resources(dukto6 "assets"
         src/assets/Klill-Light.ttf
         src/assets/LiberationSans-Regular.ttf
         src/assets/Accept.svg
-        src/assets/AndroidLogo.png
-        src/assets/AppleLogo.png
+        src/assets/AndroidLogo.svg
+        src/assets/AppleLogo.svg
         src/assets/ArrowBack.svg
         src/assets/BlackberryLogo.png
         src/assets/BottomShadow.png
@@ -246,24 +246,24 @@ qt_add_resources(dukto6 "assets"
         src/assets/folder-fill-colored.svg
         src/assets/FolderUp.svg
         src/assets/IosLogo.png
-        src/assets/IpLogo.png
-        src/assets/LinuxLogo.png
+        src/assets/IpLogo.svg
+        src/assets/LinuxLogo.svg
         src/assets/OpenFolder.svg
         src/assets/PanelGradient.png
-        src/assets/PcLogo.png
-        src/assets/RecentFile.png
-        src/assets/RecentFiles.png
-        src/assets/RecentText.png
+        src/assets/PcLogo.svg
+        src/assets/RecentFile.svg
+        src/assets/RecentFiles.svg
+        src/assets/RecentText.svg
         src/assets/SettingsDark.svg
         src/assets/ShowIpDark.svg
-        src/assets/SmartphoneLogo.png
+        src/assets/SmartphoneLogo.svg
         src/assets/SwipeDown.png
         src/assets/SwipeUp.png
         src/assets/SymbianLogo.png
         src/assets/TileGradient.png
         src/assets/TopShadow.png
-        src/assets/UnknownLogo.png
-        src/assets/WindowsLogo.png
+        src/assets/UnknownLogo.svg
+        src/assets/WindowsLogo.svg
 )
 
 # Linux-specific desktop integration

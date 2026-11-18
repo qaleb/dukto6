@@ -23,6 +23,7 @@ Rectangle {
                 ColorImage {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 30; height: 30; source: control.imageSource; color: theme.accentText
+                    sourceSize: Qt.size(width, height)
                 }
                 Text {
                     width: parent.width; horizontalAlignment: Text.AlignHCenter

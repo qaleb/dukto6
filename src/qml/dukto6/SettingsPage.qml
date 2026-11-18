@@ -14,6 +14,7 @@ Rectangle {
     ColorImage {
         id: backIcon
         x: 8; y: 8; width: 40; height: 40
+        sourceSize: Qt.size(width, height)
         source: "qrc:/src/assets/ArrowBack.svg"
         color: theme.color5
         MouseArea { anchors.fill: parent; onClicked: settingsPage.back() }

@@ -69,31 +69,31 @@ void BuddyListItemModel::addBuddy(QString ip, qint16 port, QString username, QSt
 
     // Update generic avatar
     if ((platform.toLower() == "symbian") || (platform.toLower() == "android") || (platform.toLower() == "ios") || (platform.toLower() == "blackberry") || (platform.toLower() == "windowsphone"))
-        it->setData("qrc:/src/assets/SmartphoneLogo.png", BuddyListItemModel::GenericAvatar);
+        it->setData("qrc:/src/assets/SmartphoneLogo.svg", BuddyListItemModel::GenericAvatar);
     else if (platform.toLower() == "ip")
-        it->setData("qrc:/src/assets/IpLogo.png", BuddyListItemModel::GenericAvatar);
+        it->setData("qrc:/src/assets/IpLogo.svg", BuddyListItemModel::GenericAvatar);
     else
-        it->setData("qrc:/src/assets/PcLogo.png", BuddyListItemModel::GenericAvatar);
+        it->setData("qrc:/src/assets/PcLogo.svg", BuddyListItemModel::GenericAvatar);
 
     // Update logo
     if (platform.toLower() == "windows")
-        it->setData("qrc:/src/assets/WindowsLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/WindowsLogo.svg", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "macintosh")
-        it->setData("qrc:/src/assets/AppleLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/AppleLogo.svg", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "linux")
-        it->setData("qrc:/src/assets/LinuxLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/LinuxLogo.svg", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "symbian")
         it->setData("qrc:/src/assets/SymbianLogo.png", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "ios")
-        it->setData("qrc:/src/assets/IosLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/AppleLogo.svg", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "windowsphone")
-        it->setData("qrc:/src/assets/WindowsPhoneLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/WindowsLogo.svg", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "blackberry")
         it->setData("qrc:/src/assets/BlackberryLogo.png", BuddyListItemModel::OsLogo);
     else if (platform.toLower() == "android")
-        it->setData("qrc:/src/assets/AndroidLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/AndroidLogo.svg", BuddyListItemModel::OsLogo);
     else
-        it->setData("qrc:/src/assets/UnknownLogo.png", BuddyListItemModel::OsLogo);
+        it->setData("qrc:/src/assets/UnknownLogo.svg", BuddyListItemModel::OsLogo);
 
     // Add elemento to the list
     if (add) {
