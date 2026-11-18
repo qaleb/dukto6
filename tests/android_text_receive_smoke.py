@@ -37,6 +37,13 @@ for index, text in enumerate(messages):
     packet = struct.pack('<qq', 1, len(content)) + b'___DUKTO___TEXT___\0' + struct.pack('<q', len(content)) + content
     with socket.create_connection(('127.0.0.1', args.port), timeout=10) as connection:
         connection.sendall(packet)
+        # ADB forwarding can discard queued data on an immediate full close.
+        # Allow the forwarding service to flush, then end the write stream and
+        # let the receiver drain and close its side.
+        time.sleep(0.3)
+        connection.shutdown(socket.SHUT_WR)
+        while connection.recv(1024):
+            pass
     time.sleep(0.3)
     if adb('shell', 'pidof', package) != pid:
         raise AssertionError('Android app restarted during message %d' % index)

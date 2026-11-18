@@ -107,7 +107,7 @@ Rectangle {
             leftMargin: 30
             right: parent.right
         }
-        buddyGeneric: "qrc:/src/assets/UnknownLogo.png"
+        buddyGeneric: "qrc:/src/assets/UnknownLogo.svg"
         buddyAvatar: ""
         buddyOsLogo: ""
         buddyUsername: qsTr("Destination:")
