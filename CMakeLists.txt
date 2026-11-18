@@ -1,12 +1,74 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto VERSION 6.9.6 LANGUAGES CXX)
+project(dukto VERSION 6.9.11 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include(GNUInstallDirs)
 
 # Find required Qt6 modules
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Widgets Qml)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network Quick Qml)
+if(NOT ANDROID)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+endif()
+
+option(DUKTO_BUILD_TESTS "Build backend regression tests" OFF)
+if(DUKTO_BUILD_TESTS AND NOT ANDROID)
+    enable_testing()
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(discovery_tests
+        tests/discovery_tests.cpp
+        src/duktoprotocol.cpp src/duktoprotocol.h src/transfersource.cpp src/receivedfile.cpp
+        src/platform.cpp src/settings.cpp src/settings.h
+        src/theme.cpp src/theme.h
+    )
+    target_include_directories(discovery_tests PRIVATE src)
+    target_link_libraries(discovery_tests PRIVATE Qt6::Test Qt6::Network Qt6::Widgets)
+    if(WIN32)
+        target_link_libraries(discovery_tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME discovery COMMAND discovery_tests)
+    qt_add_executable(transfer_tests
+        tests/transfer_tests.cpp
+        src/duktoprotocol.cpp src/duktoprotocol.h src/transfersource.cpp src/receivedfile.cpp
+        src/transferqueue.cpp src/transferqueue.h
+        src/platform.cpp src/settings.cpp src/settings.h
+        src/theme.cpp src/theme.h src/recentlistitemmodel.cpp src/recentlistitemmodel.h
+    )
+    target_include_directories(transfer_tests PRIVATE src)
+    target_link_libraries(transfer_tests PRIVATE Qt6::Test Qt6::Network Qt6::Widgets)
+    add_test(NAME transfers COMMAND transfer_tests)
+    qt_add_executable(theme_tests tests/theme_tests.cpp src/theme.cpp src/theme.h)
+    target_include_directories(theme_tests PRIVATE src)
+    target_link_libraries(theme_tests PRIVATE Qt6::Test Qt6::Gui)
+    add_test(NAME theme COMMAND theme_tests)
+    qt_add_executable(desktopshare_tests tests/desktopshare_tests.cpp src/desktopsharebridge.cpp src/desktopsharebridge.h)
+    target_include_directories(desktopshare_tests PRIVATE src)
+    target_link_libraries(desktopshare_tests PRIVATE Qt6::Test Qt6::Network)
+    add_test(NAME desktop_share COMMAND desktopshare_tests)
+    qt_add_executable(desktopintegration_tests tests/desktopintegration_tests.cpp src/desktopintegration.cpp src/desktopintegration.h)
+    target_include_directories(desktopintegration_tests PRIVATE src)
+    target_link_libraries(desktopintegration_tests PRIVATE Qt6::Test)
+    if(WIN32)
+        target_link_libraries(desktopintegration_tests PRIVATE ole32 uuid shell32)
+    endif()
+    add_test(NAME file_manager_actions COMMAND desktopintegration_tests)
+    set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    find_package(Java QUIET COMPONENTS Runtime Development)
+    if(Java_FOUND)
+        set(STORAGE_POLICY_CLASSES "${CMAKE_CURRENT_BINARY_DIR}/storage-policy-tests")
+        add_custom_command(OUTPUT "${STORAGE_POLICY_CLASSES}/idv/coolshou/StoragePolicyTest.class"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${STORAGE_POLICY_CLASSES}"
+            COMMAND ${Java_JAVAC_EXECUTABLE} -d "${STORAGE_POLICY_CLASSES}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/android/src/idv/coolshou/DuktoStoragePolicy.java"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/StoragePolicyTest.java"
+            DEPENDS android/src/idv/coolshou/DuktoStoragePolicy.java tests/StoragePolicyTest.java
+            VERBATIM)
+        add_custom_target(storage_policy_tests ALL DEPENDS "${STORAGE_POLICY_CLASSES}/idv/coolshou/StoragePolicyTest.class")
+        add_test(NAME storage_policy COMMAND ${Java_JAVA_EXECUTABLE} -cp "${STORAGE_POLICY_CLASSES}" idv.coolshou.StoragePolicyTest)
+    endif()
+endif()
 
 # Set Qt policies
 qt_policy(SET QTP0001 NEW)
@@ -15,8 +77,9 @@ qt_policy(SET QTP0004 NEW)
 
 # Embed Windows icon in the executable
 if(WIN32)
-    set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/src/dukto.rc")
-    set_source_files_properties(${app_icon_resource_windows} PROPERTIES LANGUAGE RC)
+    enable_language(RC)
+    set(app_icon_resource_windows "${CMAKE_CURRENT_BINARY_DIR}/dukto.rc")
+    configure_file(cmake/dukto.rc.in "${app_icon_resource_windows}" @ONLY)
 endif()
 
 # Main source files
@@ -24,6 +87,12 @@ set(SOURCES
     src/buddylistitemmodel.cpp
     src/destinationbuddy.cpp
     src/duktoprotocol.cpp
+    src/transfersource.cpp
+    src/receivedfile.cpp
+    src/transferqueue.cpp
+    src/androidsharebridge.cpp
+    src/desktopsharebridge.cpp
+    src/desktopintegration.cpp
     src/guibehind.cpp
     src/ipaddressitemmodel.cpp
     src/main.cpp
@@ -39,6 +108,13 @@ set(HEADERS
     src/buddylistitemmodel.h
     src/destinationbuddy.h
     src/duktoprotocol.h
+    src/transfersource.h
+    src/receivedfile.h
+    src/transferrequest.h
+    src/transferqueue.h
+    src/androidsharebridge.h
+    src/desktopsharebridge.h
+    src/desktopintegration.h
     src/guibehind.h
     src/ipaddressitemmodel.h
     src/miniwebserver.h
@@ -58,11 +134,34 @@ endif()
 
 qt_add_executable(dukto6 ${SOURCES} ${HEADERS})
 
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    # Ship the desktop appearance/portal plugins so System mode also works in bundled packages.
+    foreach(theme_plugin Qt6::QGtk3ThemePlugin Qt6::QXdgDesktopPortalThemePlugin)
+        if(TARGET ${theme_plugin})
+            qt_import_plugins(dukto6 INCLUDE ${theme_plugin})
+        endif()
+    endforeach()
+endif()
+
+if(DUKTO_BUILD_TESTS AND NOT ANDROID)
+    set(COORDINATOR_SOURCES ${SOURCES})
+    list(REMOVE_ITEM COORDINATOR_SOURCES src/main.cpp)
+    qt_add_executable(coordinator_tests tests/coordinator_tests.cpp ${COORDINATOR_SOURCES} ${HEADERS})
+    target_include_directories(coordinator_tests PRIVATE src)
+    target_link_libraries(coordinator_tests PRIVATE Qt6::Test Qt6::Quick Qt6::Qml Qt6::Widgets Qt6::Network)
+    if(WIN32)
+        target_link_libraries(coordinator_tests PRIVATE ole32 uuid user32 shell32)
+    endif()
+    add_test(NAME coordinator COMMAND coordinator_tests)
+    set_tests_properties(coordinator PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Add QML module
 qt_add_qml_module(dukto6
     URI dukto6
     QML_FILES
         src/qml/dukto6/AboutPage.qml
+        src/qml/dukto6/ActionButton.qml
         src/qml/dukto6/BottomToolBar.qml
         src/qml/dukto6/BuddiesPage.qml
         src/qml/dukto6/BuddyListComponent.qml
@@ -117,26 +216,14 @@ target_link_libraries(dukto6
     PRIVATE Qt6::Quick
     PRIVATE Qt6::Qml
     PRIVATE Qt6::Core
+    PRIVATE Qt6::Network
 )
 if(NOT ANDROID)
     target_link_libraries(dukto6 PRIVATE Qt6::Widgets)
 endif()
-
-# Linux: Strip binary to reduce size
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-    add_custom_command(TARGET dukto6 POST_BUILD
-        COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:dukto6>
-        COMMENT "Stripping binary to reduce size"
-    )
-endif()
-
-# Deploy QML app script only for non-Android platforms
-if(NOT ANDROID)
-    qt_generate_deploy_qml_app_script(
-        TARGET dukto6
-        OUTPUT_SCRIPT deploy_script
-    )
-    install(SCRIPT ${deploy_script})
+if(WIN32)
+    # COM taskbar progress and window notifications in winhelper.h.
+    target_link_libraries(dukto6 PRIVATE ole32 uuid user32 shell32)
 endif()
 
 # Assets (fonts, icons, etc.)
@@ -147,8 +234,8 @@ qt_add_resources(dukto6 "assets"
         src/assets/Klill-Light.ttf
         src/assets/LiberationSans-Regular.ttf
         src/assets/Accept.svg
-        src/assets/AndroidLogo.png
-        src/assets/AppleLogo.png
+        src/assets/AndroidLogo.svg
+        src/assets/AppleLogo.svg
         src/assets/ArrowBack.svg
         src/assets/BlackberryLogo.png
         src/assets/BottomShadow.png
@@ -159,25 +246,24 @@ qt_add_resources(dukto6 "assets"
         src/assets/folder-fill-colored.svg
         src/assets/FolderUp.svg
         src/assets/IosLogo.png
-        src/assets/IpLogo.png
-        src/assets/LinuxLogo.png
+        src/assets/IpLogo.svg
+        src/assets/LinuxLogo.svg
         src/assets/OpenFolder.svg
         src/assets/PanelGradient.png
-        src/assets/PcLogo.png
-        src/assets/RecentFile.png
-        src/assets/RecentFiles.png
-        src/assets/RecentText.png
+        src/assets/PcLogo.svg
+        src/assets/RecentFile.svg
+        src/assets/RecentFiles.svg
+        src/assets/RecentText.svg
         src/assets/SettingsDark.svg
         src/assets/ShowIpDark.svg
-        src/assets/SmartphoneLogo.png
+        src/assets/SmartphoneLogo.svg
         src/assets/SwipeDown.png
         src/assets/SwipeUp.png
         src/assets/SymbianLogo.png
         src/assets/TileGradient.png
         src/assets/TopShadow.png
-        src/assets/UnknownLogo.png
-        src/assets/WindowsLogo.png
-        # src/dukto.rc
+        src/assets/UnknownLogo.svg
+        src/assets/WindowsLogo.svg
 )
 
 # Linux-specific desktop integration
@@ -189,16 +275,26 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
 endif()
 
 # Installation rules
-include(GNUInstallDirs)
 install(TARGETS dukto6
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+# Deploy after installing the executable so Qt can inspect its dependencies.
+if(NOT ANDROID)
+    qt_generate_deploy_qml_app_script(
+        TARGET dukto6
+        OUTPUT_SCRIPT deploy_script
+    )
+    install(SCRIPT ${deploy_script})
+endif()
+
 # Packaging (DEB format for Linux)
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     set(CPACK_PACKAGE_NAME "Dukto")
+    # Match the existing installed package so new builds upgrade it in place.
+    set(CPACK_DEBIAN_PACKAGE_NAME "dukto6")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Caleb <drmaangi@gmail.com>")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
@@ -207,14 +303,17 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libstdc++6, libgcc-s1")
     set(CPACK_GENERATOR "DEB")
+    # Keep symbols in development builds; strip only the packaged copy.
+    set(CPACK_STRIP_FILES ON)
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
     include(CPack)
 endif()
 
-# On Linux, set the output directory for the executable to avoid conflict with the dukto6 directory
+# Linux executable layout and lookup for bundled Qt libraries.
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     set_target_properties(dukto6 PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
     )
 endif()

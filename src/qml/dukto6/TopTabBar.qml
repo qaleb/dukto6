@@ -6,7 +6,7 @@ Item {
     state: "buddies"
 
     signal clicked(string tab)
-    property string themeColor: theme.color2
+    property string themeColor: theme.accentForeground
 
     Item {
         anchors.fill: parent

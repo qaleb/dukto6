@@ -1,52 +1,31 @@
 #include "updateschecker.h"
-
 #include "platform.h"
-
-#include <QNetworkRequest>
-#include <QNetworkReply>
 #include <QNetworkAccessManager>
-#include <QSysInfo>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrlQuery>
 #include <QLocale>
-#include <QDebug>
+#include <QSysInfo>
+#include <QTimer>
 
-UpdatesChecker::UpdatesChecker() :
-    mNetworkAccessManager(NULL)
-{
+UpdatesChecker::UpdatesChecker(QObject *parent) : QObject(parent) {}
+void UpdatesChecker::start() {
+    if (mNetworkAccessManager) return;
+    mNetworkAccessManager = new QNetworkAccessManager(this);
+    QUrl url("http://www.msec.it/dukto/r5check.php");
+    QUrlQuery query;
+    // Preserve the legacy update endpoint's version identifier.
+    query.addQueryItem("ver","6.0"); query.addQueryItem("locale",QLocale::system().name());
+    query.addQueryItem("os",Platform::getPlatformName().toLower()); query.addQueryItem("osver",QSysInfo::productVersion());
+    url.setQuery(query);
+    QNetworkRequest request(url); request.setTransferTimeout(5000);
+    auto *reply = mNetworkAccessManager->get(request);
+    reply->setReadBufferSize(4096);
+    QTimer::singleShot(5000,reply,[reply] { if (reply->isRunning()) reply->abort(); });
+    connect(reply,&QNetworkReply::finished,this,[this,reply] { updatedDataReady(reply); });
 }
-
-UpdatesChecker::~UpdatesChecker()
-{
-    if (mNetworkAccessManager) delete mNetworkAccessManager;
-}
-
-void UpdatesChecker::run()
-{
-    // Get platform data
-    QString osver = "";
-    QString os = Platform::getPlatformName().toLower();
-#if defined(Q_OS_WIN)
-    osver = QSysInfo::productVersion();
-#elif defined(Q_OS_MAC)
-    osver = QSysInfo::productVersion();
-#elif defined(Q_OS_S60)
-    osver = QString::number(QSysInfo::symbianVersion());
-#endif
-    QString ver = "6.0";
-    QString locale = QLocale::system().name();
-
-    // Send check request
-    QNetworkRequest request(QUrl("http://www.msec.it/dukto/r5check.php?ver=" + ver + "&locale=" + locale + "&os=" + os + "&osver=" + osver));
-    mNetworkAccessManager = new QNetworkAccessManager();
-    connect(mNetworkAccessManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(updatedDataReady(QNetworkReply*)));
-    mNetworkAccessManager->get(request);
-
-    exec();
-}
-
-// Read updates results
-void UpdatesChecker::updatedDataReady(QNetworkReply *reply)
-{
-    if (reply->error() != QNetworkReply::NoError) return;
-    if (QString(reply->readAll()) == "") return;
-    emit updatesAvailable();
+void UpdatesChecker::updatedDataReady(QNetworkReply *reply) {
+    const bool available = reply->error() == QNetworkReply::NoError && !reply->readAll().isEmpty();
+    reply->deleteLater();
+    if (available) emit updatesAvailable();
 }

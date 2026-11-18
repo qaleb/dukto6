@@ -1,116 +1,109 @@
-#ifndef DUKTOPROTOCOL_H
-#define DUKTOPROTOCOL_H
-
+#pragma once
 #include <QObject>
-
-#include <QtNetwork/QUdpSocket>
-#include <QtNetwork/QTcpSocket>
-#include <QtNetwork/QTcpServer>
-#include <QtNetwork/QHostInfo>
+#include <QTcpSocket>
+#include <QTcpServer>
+#include <QUdpSocket>
+#include <QElapsedTimer>
+#include <QTimer>
 #include <QHash>
-#include <QFile>
-
+#include "receivedfile.h"
+#include <atomic>
+#include <QMutex>
 #include "peer.h"
+#include "transferrequest.h"
+#include "transfersource.h"
 
-class DuktoProtocol : public QObject
-{
+class DuktoProtocol : public QObject {
     Q_OBJECT
-
 public:
-    DuktoProtocol();
-    virtual ~DuktoProtocol();
+    explicit DuktoProtocol(QObject *parent = nullptr);
+    ~DuktoProtocol() override;
     void initialize();
     void setPorts(qint16 udp, qint16 tcp);
     void sayHello(QHostAddress dest);
     void sayHello(QHostAddress dest, qint16 port);
     void sayGoodbye();
-    inline QHash<QString, Peer>& getPeers() { return mPeers; }
-    void sendFile(QString ipDest, qint16 port, QStringList files);
-    void sendText(QString ipDest, qint16 port, QString text);
-    void sendScreen(QString ipDest, qint16 port, QString path);
-    inline bool isBusy() { return mIsSending || mIsReceiving; }
-    void abortCurrentTransfer();
+    QHash<QString, Peer> &getPeers() { return mPeers; }
+    bool isBusy() const { return mBusy.load(); }
+    void sendRequest(const TransferRequest &request);
+    void setReceivePath(const QString &path) { mReceivePath = path; }
+    void setReceivingEnabled(bool enabled) { mReceivingEnabled = enabled; }
     void updateBuddyName();
-
+    // The cancellation flag can interrupt synchronous source preparation on the worker.
+    void requestCancel();
 public slots:
     void newUdpData();
     void newIncomingConnection();
     void readNewData();
     void closedConnection();
-    void closedConnectionTmp();
     void acceptIncomingTransfer();
     void rejectIncomingTransfer();
+    void abortCurrentTransfer();
+    void abortRequest(const QString &id);
     void sendMetaData();
-    void sendData(qint64 b);
-    void sendConnectError(QAbstractSocket::SocketError);
-
+    void sendData(qint64 bytes = 0);
+    void sendConnectError(QAbstractSocket::SocketError error);
 signals:
     void peerListAdded(Peer peer);
     void peerListRemoved(Peer peer);
     void sendFileComplete();
     void sendFileError(int code);
     void sendFileAborted();
+    void transferError(QString message);
+    void currentFileChanged(QString name);
+    void receivedFilePublished(QString location, QString name, qint64 size);
     void receiveFileStart(QString senderIp);
     void incomingTransferRequested(QString senderIp);
-    void receiveFileComplete(QStringList *files, qint64 totalSize);
-    void receiveTextComplete(QString *text, qint64 totalSize);
+    void incomingTransferDismissed();
+    void receiveFileComplete(QStringList files, qint64 totalSize);
+    void receiveTextComplete(QString text, qint64 totalSize);
     void receiveFileCancelled();
     void transferStatusUpdate(qint64 total, qint64 partial);
-
+    void discoveryError(QString message);
 private:
-    QString getSystemSignature();
-    QStringList* expandTree(QStringList files);
-    void addRecursive(QStringList *e, QString path);
-    qint64 computeTotalSize(QStringList *e);
-    QByteArray nextElementHeader();
-    void sendToAllBroadcast(QByteArray *packet, qint16 port);
-    void closeCurrentTransfer(bool aborted = false);
-    void beginIncomingTransfer(QTcpSocket *socket);
-
-    void handleMessage(QByteArray &data, QHostAddress &sender);
-    void updateStatus();
-
-    QUdpSocket *mSocket;            // Socket UDP segnalazione
-    QTcpServer *mTcpServer;         // Socket TCP attesa dati
-    QTcpSocket *mCurrentSocket;     // Socket TCP dell'attuale trasferimento file
-    QTcpSocket *mPendingIncomingSocket; // Socket TCP in attesa di conferma ricezione
-
-    QHash<QString, Peer> mPeers;    // Elenco peer individuati
-
-    // Send and receive members
-    qint16 mLocalUdpPort;
-    qint16 mLocalTcpPort;
-    bool mIsSending;
-    bool mIsReceiving;
-    QFile *mCurrentFile;            // Puntatore al file aperto corrente
-    qint64 mTotalSize;              // Quantità totale di dati da inviare o ricevere
-    int mFileCounter;              // Puntatore all'elemento correntemente da trasmettere o ricevere
-
-    // Sending members
-    QStringList *mFilesToSend;      // Elenco degli elementi da trasmettere
-    qint64 mSentData;               // Quantità di dati totale trasmessi
-    qint64 mSentBuffer;             // Quantità di dati rimanenti nel buffer di trasmissione
-    QString mBasePath;              // Percorso base per l'invio di file e cartelle
-    QString mTextToSend;            // Testo da inviare (in caso di invio testuale)
-    bool mSendingScreen;            // Flag che indica se si sta inviando uno screenshot
-
-    // Receive members
-    qint64 mElementsToReceiveCount;    // Numero di elementi da ricevere
-    qint64 mTotalReceivedData;         // Quantità di dati ricevuti totale
-    qint64 mElementReceivedData;       // Quantità di dati ricevuti per l'elemento corrente
-    qint64 mElementSize;               // Dimensione dell'elemento corrente
-    QString mRootFolderName;           // Nome della cartella principale ricevuta
-    QString mRootFolderRenamed;        // Nome della cartella principale da utilizzare
-    QStringList *mReceivedFiles;        // Elenco degli elementi da trasmettere
-    QByteArray mTextToReceive;             // Testo ricevuto in caso di invio testo
-    bool mReceivingText;               // Ricezione di testo in corso
-    QByteArray mPartialName;              // Nome prossimo file letto solo in parte
-    enum RecvStatus {
-        FILENAME,
-        FILESIZE,
-        DATA
-    } mRecvStatus;
-
+    void useCancellation(std::shared_ptr<std::atomic_bool> cancellation);
+    friend class DiscoveryTest;
+    QString getSystemSignature() const { return signature(); }
+    QString signature() const;
+    void sendToAllBroadcast(const QByteArray &packet, quint16 port);
+    void handleMessage(QByteArray &data, QHostAddress &sender,
+                       const QList<QHostAddress> &localAddresses);
+    void finishSend(const QString &error = {}, bool cancelled = false);
+    void finishReceive(bool success, const QString &error = {});
+    void resetSocket();
+    void updateStatus(bool force = false);
+    bool beginElement(const QString &name, qint64 size);
+    bool safeDestination(const QString &relative, QString *absolute) const;
+    QString uniqueDestination(const QString &path) const;
+    QUdpSocket *mSocket = nullptr;
+    QTcpServer *mTcpServer = nullptr;
+    QTcpSocket *mCurrentSocket = nullptr;
+    QTcpSocket *mPendingIncomingSocket = nullptr;
+    QTimer *mTimeout = nullptr;
+    QHash<QString, Peer> mPeers;
+    QHash<QString, qint64> mLastSeen;
+    quint16 mUdpPort = 4644, mTcpPort = 4644;
+    std::atomic_bool mBusy{false};
+    QMutex mCancellationMutex;
+    std::shared_ptr<std::atomic_bool> mCancellation = std::make_shared<std::atomic_bool>(false);
+    bool mSending = false, mReceiving = false, mReceivingEnabled = true;
+    QString mReceivePath;
+    QString mActiveReceivePath;
+    QString mActiveReceiveTree, mReceiveError;
+    qint64 mCurrentElementSize = 0;
+    QElapsedTimer mStatusClock;
+    TransferRequest mRequest;
+    QList<TransferSource> mSources;
+    int mSourceIndex = 0;
+    qint64 mSourceRemaining = 0;
+    QByteArray mOutgoing, mText;
+    qsizetype mTextOffset = 0;
+    qint64 mTotal = 0, mTransferred = 0;
+    enum ReceiveState { Header, Filename, FileSize, Data } mReceiveState = Header;
+    QByteArray mName, mReceivedText;
+    QStringList mReceivedFiles;
+    QHash<QString, QString> mRootNames;
+    std::unique_ptr<ReceivedFile> mOutput;
+    qint64 mExpectedElements = 0, mCompletedElements = 0, mRemaining = 0;
+    bool mTextElement = false, mSawText = false;
 };
-
-#endif // DUKTOPROTOCOL_H

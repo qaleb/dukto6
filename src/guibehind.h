@@ -5,6 +5,9 @@
 #include <QQmlApplicationEngine>
 #include <QClipboard>
 #include <QQueue>
+#include <QThread>
+#include "transferqueue.h"
+#include "androidsharebridge.h"
 
 #if defined(Q_OS_WIN)
 #include <QSystemTrayIcon>
@@ -30,6 +33,13 @@ class GuiBehind : public QObject
 {
     Q_OBJECT
 
+    Q_PROPERTY(bool hasPendingShare READ hasPendingShare NOTIFY pendingShareChanged)
+    Q_PROPERTY(QString pendingShareSummary READ pendingShareSummary NOTIFY pendingShareChanged)
+    Q_PROPERTY(int pendingShareCount READ pendingShareCount NOTIFY pendingShareChanged)
+    Q_PROPERTY(QString androidStorageDescription READ androidStorageDescription NOTIFY androidStorageChanged)
+    Q_PROPERTY(bool androidCustomStorage READ androidCustomStorage NOTIFY androidStorageChanged)
+    Q_PROPERTY(bool androidAutomaticStorageAvailable READ androidAutomaticStorageAvailable CONSTANT)
+    Q_PROPERTY(qreal androidKeyboardTop READ androidKeyboardTop NOTIFY androidKeyboardChanged)
     Q_PROPERTY(int currentTransferProgress READ currentTransferProgress NOTIFY currentTransferProgressChanged)
     Q_PROPERTY(QString currentTransferStats READ currentTransferStats NOTIFY currentTransferStatsChanged)
     Q_PROPERTY(bool currentTransferSending READ currentTransferSending NOTIFY currentTransferSendingChanged)
@@ -50,15 +60,30 @@ class GuiBehind : public QObject
     Q_PROPERTY(QString pendingIncomingSender READ pendingIncomingSender NOTIFY pendingIncomingSenderChanged)
     Q_PROPERTY(bool clipboardTextAvailable READ clipboardTextAvailable NOTIFY clipboardTextAvailableChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
 
 public:
     // Provide a static method to access the singleton instance
     static GuiBehind& instance(QQmlApplicationEngine &engine) {
-        static GuiBehind instance(engine);
-        return instance;
+        auto *backend = engine.findChild<GuiBehind *>("duktoBackend", Qt::FindDirectChildrenOnly);
+        if (!backend) {
+            backend = new GuiBehind(engine, &engine);
+            backend->setObjectName("duktoBackend");
+        }
+        return *backend;
     }
 
+    ~GuiBehind() override;
+    bool hasPendingShare() const { return !mPendingShares.isEmpty(); }
+    QString pendingShareSummary() const;
+    int pendingShareCount() const { return mPendingShares.size(); }
+    QString androidStorageDescription() const;
+    bool androidCustomStorage() const;
+    bool androidAutomaticStorageAvailable() const;
+    qreal androidKeyboardTop() const;
     QString getCurrentThemeColor();
+    QString themeMode() const { return mTheme.mode(); }
+    void setThemeMode(const QString &mode);
     // bool canAcceptDrop();
     // void sendDroppedFiles(QStringList *files);
 
@@ -107,16 +132,12 @@ public:
     bool isTrayIconVisible();
     void setTrayIconVisible(bool bVisible);
 
-    #if defined(Q_OS_ANDROID)
-    // Convert content URI to local file paths
-    QString convertContentUriToFilePath(const QString &files);
-    // Request Permissions on Android
-    bool requestPermissions();
-    // Add this:
-    QString copyContentUriToTempFile(const QString &uri);
-    #endif
 
 signals:
+    void androidKeyboardChanged();
+    void themeModeChanged();
+    void pendingShareChanged();
+    void androidStorageChanged();
     void currentTransferBuddyChanged();
     void currentTransferProgressChanged();
     void currentTransferStatsChanged();
@@ -144,6 +165,8 @@ signals:
     void gotoTextSnippet();
     void gotoSendPage();
     void gotoMessagePage();
+    void gotoConfirmReceivePage();
+    void gotoShareRecipient();
     void hideAllOverlays();
 
 public slots:
@@ -163,8 +186,8 @@ public slots:
     void incomingTransferRequested(QString senderIp);
     void receiveFileStart(QString senderIp);
     void transferStatusUpdate(qint64 total, qint64 partial);
-    void receiveFileComplete(QStringList *files, qint64 totalSize);
-    void receiveTextComplete(QString *text, qint64 totalSize);
+    void receiveFileComplete(QStringList files, qint64 totalSize);
+    void receiveTextComplete(QString text, qint64 totalSize);
     void sendFileComplete();
     void sendFileError(int code);
     void receiveFileCancelled();
@@ -172,6 +195,13 @@ public slots:
 
     // Called by QML
     void close();
+    void readyForShares();
+    void stageShare(QStringList sources, QString text);
+    void discardPendingShare();
+    void sendPendingShare();
+    void chooseAndroidStorage();
+    void useAutomaticAndroidStorage();
+    void openBatterySettings();
     void openDestinationFolder();
     void refreshIpList();
     void showTextSnippet(QString text, QString sender);
@@ -199,15 +229,16 @@ private slots:
 #endif
 
 private:
-    struct PendingTransfer {
-        bool isText = false;
-        QStringList files;
-        QString text;
-        int retriesRemaining = 0;
-    };
+    friend class CoordinatorTest;
+    void startJob(TransferRequest request);
+    bool captureRecipient(TransferRequest &request);
+    void submit(TransferRequest request);
+    void dismissIncomingTransfer();
+    void showError(const QString &message);
+    void shutdown();
 
     // Make constructor private to prevent direct instantiation
-    explicit GuiBehind(QQmlApplicationEngine &engine, QObject *parent = nullptr);
+    explicit GuiBehind(QQmlApplicationEngine &engine, QObject *parent = nullptr, quint16 port = 4644);
     GuiBehind(const GuiBehind&) = delete; // Delete copy constructor
     GuiBehind& operator=(const GuiBehind&) = delete; // Delete assignment operator
 
@@ -220,35 +251,35 @@ private:
     BuddyListItemModel mBuddiesList;
     RecentListItemModel mRecentList;
     IpAddressItemModel mIpAddresses;
-    DuktoProtocol mDuktoProtocol;
+    DuktoProtocol *mDuktoProtocol = nullptr;
+    QThread mProtocolThread;
+    TransferQueue mTransfers;
+    AndroidShareBridge mAndroidShares;
+    QQueue<TransferRequest> mPendingShares;
+    QString mLastTransferError;
+    QString mActiveJobId;
+    std::shared_ptr<std::atomic_bool> mActiveCancellation;
+    bool mCapturingScreen = false;
+    bool mShuttingDown = false;
+    int mAndroidKeyboardTopPixels = -1;
     Theme mTheme;
     UpdatesChecker *mUpdatesChecker;
 
-    int mCurrentTransferProgress;
+    int mCurrentTransferProgress = 0;
     QString mCurrentTransferBuddy;
     QString mCurrentTransferStats;
-    bool mCurrentTransferSending;
+    bool mCurrentTransferSending = false;
     QString mTextSnippetBuddy;
     QString mTextSnippet;
-    bool mTextSnippetSending;
-    bool mClipboardTextAvailable;
+    bool mTextSnippetSending = false;
+    bool mClipboardTextAvailable = false;
     QString mRemoteDestinationAddress;
     QString mOverlayState;
     QString mMessagePageText;
     QString mMessagePageTitle;
     QString mMessagePageBackState;
     QString mPendingIncomingSender;
-    bool mShowUpdateBanner;
-    QString mScreenTempPath;
-    QQueue<PendingTransfer> mPendingTransfers;
-    PendingTransfer mActiveTransfer;
-    bool mHasActiveTransfer = false;
-
-    bool prepareStartTransfer(QString *ip, qint16 *port);
-    void executeTransfer(const PendingTransfer &transfer);
-    void processQueuedTransfer();
-    void queueTransfer(const PendingTransfer &transfer);
-    void queueRetry(const PendingTransfer &transfer);
+    bool mShowUpdateBanner = false;
     void startTransfer(QStringList files);
     void startTransfer(QString text);
 
@@ -262,11 +293,10 @@ private:
     QMenu *trayIconMenu = nullptr;
 #endif
 
-    #if defined(Q_OS_ANDROID)
-    QList<QString> mTempFilesForTransfer;
+#if defined(Q_OS_ANDROID)
+    bool mAndroidServiceActive = false;
     void setAndroidTransferActive(bool active);
-    QString takePendingAndroidShareUris();
-    #endif
+#endif
 };
 
 #endif // GUIBEHIND_H

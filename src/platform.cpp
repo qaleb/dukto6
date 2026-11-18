@@ -31,6 +31,7 @@ QTM_USE_NAMESPACE
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
+#include <QCoreApplication>
 #endif
 
 #include "settings.h"
@@ -40,9 +41,8 @@ QTM_USE_NAMESPACE
 QString Platform::getSystemUsername()
 {
     Settings s;
-    qDebug() << "buddyName:" << s.buddyName();
-    username = !s.buddyName().isEmpty() ? s.buddyName() : "";
-    if (username != "") return username;
+    const QString configured = s.buddyName();
+    if (!configured.isEmpty()) return configured;
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_UNIX)
     QString uname = qgetenv("USER");  // for Linux/Android
@@ -70,6 +70,8 @@ QString Platform::getHostname()
     QJniObject model = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MODEL");
     hostname = model.toString();
     qDebug() << "The hostname is" << hostname;
+#elif defined(Q_OS_WIN)
+    hostname = QHostInfo::localHostName();
 #elif defined(Q_OS_UNIX)
     hostname = QHostInfo::localHostName().replace(".local", "");
 #else
@@ -85,6 +87,8 @@ QString Platform::getPlatformName()
 {
 #if defined(Q_OS_ANDROID)
     return "Android";
+#elif defined(Q_OS_WIN)
+    return "Windows";
 #elif defined(Q_OS_UNIX)
     return "Linux";
 #else
@@ -111,7 +115,10 @@ QString Platform::getDefaultPath()
 {
     QString downloadsPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 #if defined(Q_OS_ANDROID)
-    return "/sdcard/Download";
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    auto directory = context.callObjectMethod("getFilesDir", "()Ljava/io/File;");
+    return directory.isValid() ? directory.callObjectMethod("getAbsolutePath", "()Ljava/lang/String;").toString() + "/receive"
+                               : QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/receive";
 #else
     return downloadsPath;
 #endif

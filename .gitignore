@@ -86,3 +86,6 @@ CMakeLists.txt.user*
 /android/.gradle/
 /android/build/
 /android/local.properties
+/tests/android-storage/.gradle/
+/tests/android-storage/build/
+/tests/android-storage/local.properties

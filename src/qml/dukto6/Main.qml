@@ -5,11 +5,39 @@ import QtQuick.Window
 ApplicationWindow {
     id: rootWindow
     readonly property bool isAndroid: Qt.platform.os === "android"
+    // Match the fixed desktop size with title-bar controls that omit maximize.
+    flags: (Qt.platform.os === "linux" || Qt.platform.os === "windows")
+           ? (Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint
+              | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint
+              | Qt.WindowCloseButtonHint)
+           : Qt.Window
     width: isAndroid ? Screen.width : 360
     height: isAndroid ? Screen.height : 600
     visible: true
     visibility: isAndroid ? Window.FullScreen : Window.Windowed
     color: theme.color6
+    palette {
+        window: theme.color6
+        windowText: theme.color4
+        base: theme.color6
+        alternateBase: theme.color8
+        text: theme.color4
+        button: theme.color8
+        buttonText: theme.color4
+        toolTipBase: theme.color8
+        toolTipText: theme.color4
+        highlight: theme.color2
+        highlightedText: theme.accentText
+        accent: theme.color2
+        link: theme.accentForeground
+        light: theme.color7
+        midlight: theme.color8
+        mid: theme.color5
+        dark: theme.color7
+        disabled.text: theme.color5
+        disabled.windowText: theme.color5
+        disabled.buttonText: theme.color5
+    }
     maximumHeight: isAndroid ? 16777215 : 600
     maximumWidth: isAndroid ? 16777215 : 360
     minimumHeight: isAndroid ? 0 : 600
@@ -34,6 +62,11 @@ ApplicationWindow {
         guiBehind.onGotoTextSnippet.connect(() => handleOverlayState("showtext"));
         guiBehind.onGotoSendPage.connect(() => handleOverlayState("send"));
         guiBehind.onGotoMessagePage.connect(() => handleOverlayState("message"));
+        guiBehind.onGotoConfirmReceivePage.connect(() => handleOverlayState("confirmreceive"));
+        guiBehind.onGotoShareRecipient.connect(() => {
+            handleOverlayState("");
+            duktoInner.handleTabClick("buddies");
+        });
         guiBehind.onHideAllOverlays.connect(() => handleOverlayState(""));
     }
 

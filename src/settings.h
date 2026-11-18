@@ -18,6 +18,8 @@ public:
     QRect windowRect();
     void saveThemeColor(QString color);
     QString themeColor();
+    void saveThemeMode(const QString &mode);
+    QString themeMode();
     void saveShowTermsOnStart(bool show);
     bool showTermsOnStart();
     void saveConfirmBeforeReceive(bool enabled);

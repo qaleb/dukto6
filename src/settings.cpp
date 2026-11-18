@@ -3,6 +3,7 @@
 
 #include <QSettings>
 #include <QDir>
+#include <QFileInfo>
 #include "theme.h"
 
 #include <QDebug>
@@ -18,11 +19,15 @@ Settings::Settings(QObject *parent) :
 
 QString Settings::currentPath()
 {
+#ifdef Q_OS_ANDROID
+    // Shared output uses content URIs; this private directory is only the validation root.
+    return Platform::getDefaultPath();
+#else
     // Retrieve the last saved path (if any)
     QString path = mSettings.value("DestPath", "").toString();
     // qDebug() << "The current path is:" << path;
     // Check if exists
-    if ((path != "") && (QDir(path).exists()))
+    if (!path.isEmpty() && QFileInfo(path).isDir() && QFileInfo(path).isWritable())
         return path;
 
     // Else return the default path for this platform
@@ -31,6 +36,7 @@ QString Settings::currentPath()
         return path;
     else
         return ".";
+#endif
 }
 
 void Settings::savePath(QString path)
@@ -72,6 +78,19 @@ void Settings::saveThemeColor(QString color)
 QString Settings::themeColor()
 {
     return mSettings.value("ThemeColor", Theme::DEFAULT_THEME_COLOR).toString();
+}
+
+void Settings::saveThemeMode(const QString &mode)
+{
+    if (mode != "system" && mode != "light" && mode != "dark") return;
+    mSettings.setValue("ThemeMode", mode);
+    mSettings.sync();
+}
+
+QString Settings::themeMode()
+{
+    const QString mode = mSettings.value("ThemeMode", "system").toString();
+    return mode == "light" || mode == "dark" ? mode : QStringLiteral("system");
 }
 
 void Settings::saveShowTermsOnStart(bool show)

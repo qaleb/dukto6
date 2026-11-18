@@ -10,6 +10,7 @@
     <!-- Grant access to all external storage (optional, for broad compatibility) -->
     <external-path name="external_storage" path="."/>
     <!-- Grant access to app's private files and cache -->
+    <external-files-path name="app_downloads" path="Download/"/>
     <files-path name="internal_files" path="."/>
     <cache-path name="internal_cache" path="."/>
 </paths>

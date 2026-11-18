@@ -9,7 +9,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "white"
+        color: theme.color6
 
         Rectangle {
             x: 25
@@ -31,21 +31,21 @@ Item {
             y: 81
             font.pixelSize: 100
             text: "Dukto"
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
             y: 137
             text: qsTr("Version: " + guiBehind.appVersion)
             font.pixelSize: 28
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
             y: 70 + 100
             font.pixelSize: 38
             text: "Created by Emanuele Colombo"
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
@@ -59,7 +59,7 @@ Item {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 cursorShape: Qt.PointingHandCursor
             }
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
@@ -71,14 +71,14 @@ Item {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 cursorShape: Qt.PointingHandCursor
             }
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
             y: 120 + 140
             font.pixelSize: 38
             text: "Updated by Caleb Maangi"
-            color: "#000"
+            color: theme.color1
         }
         SmoothText {
             x: 25
@@ -90,7 +90,7 @@ Item {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 cursorShape: Qt.PointingHandCursor
             }
-            color: "#000"
+            color: theme.color1
         }
 
         // Horizontal rule separator
@@ -113,7 +113,7 @@ Item {
             anchors.leftMargin: 25
             y: 335
             font.pixelSize: 12
-            color: "#000"
+            color: theme.color1
             wrapMode: "WordWrap"
             text: qsTr("Dukto is a simple file transfer app for LAN that lets you transfer all kinds of files and documents between devices, regardless of their operating system.")
         }

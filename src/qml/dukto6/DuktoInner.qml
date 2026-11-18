@@ -47,7 +47,7 @@ Rectangle {
         anchors.top: topTabBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.bottom: bottomToolBar.top
 
         Page {
             Loader {

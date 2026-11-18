@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic as C
 
 Item {
     id: recentPage
@@ -58,6 +59,9 @@ Item {
                         else if (type == "file")
                             guiBehind.openFile(value);
                     }
+                    C.ToolTip.visible: containsMouse && Qt.platform.os !== "android" && type === "file"
+                    C.ToolTip.delay: 700
+                    C.ToolTip.text: value
                 }
 
                 Rectangle {
@@ -78,11 +82,13 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 32
                     height: 32
-                    color: theme.color2
+                    color: theme.accentForeground
                     Image {
                         source: typeIcon
                         width: 32
                         height: 32
+                        sourceSize: Qt.size(width, height)
+                        fillMode: Image.PreserveAspectFit
                     }
                 }
                 SText {
@@ -95,7 +101,7 @@ Item {
                     anchors.rightMargin: 20
                     font.pixelSize: 14
                     color: theme.color4
-                    elide: "ElideRight"
+                    elide: type === "file" ? Text.ElideMiddle : Text.ElideRight
                     text: name
                 }
                 SText {
@@ -108,7 +114,7 @@ Item {
                     font.pixelSize: 12
                     elide: "ElideRight"
                     color: theme.color5
-                    text: qsTr("from ") + sender + ", " + dateTime
+                    text: qsTr("from ") + sender + ", " + dateTime + (type === "text" ? "" : " · " + size)
                 }
             }
         }

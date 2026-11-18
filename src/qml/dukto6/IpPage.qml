@@ -54,7 +54,7 @@ Rectangle {
             sourceSize.width: 40
             sourceSize.height: 40
             source: "qrc:/src/assets/ArrowBack.svg"
-            color: theme.color6
+            color: theme.accentText
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.topMargin: 5

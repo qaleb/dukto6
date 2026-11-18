@@ -4,7 +4,7 @@ Rectangle {
     id: button
     width: 150
     height: 30
-    border.color: buttonEnabled ? theme.color2 : theme.color7
+    border.color: buttonEnabled ? theme.accentForeground : theme.color7
     border.width: 2
     color: buttonArea.containsMouse ? (buttonArea.pressed ? theme.color7 : theme.color8) : theme.color6
 
@@ -15,7 +15,7 @@ Rectangle {
     SText {
         id: textLabel
         anchors.fill: parent
-        color: buttonEnabled ? theme.color2 : theme.color7
+        color: buttonEnabled ? theme.accentForeground : theme.color7
         horizontalAlignment: "AlignHCenter"
         verticalAlignment: "AlignVCenter"
         font.pixelSize: 12

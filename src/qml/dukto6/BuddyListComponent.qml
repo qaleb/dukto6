@@ -53,17 +53,19 @@ Flipable {
                 Image {
                     id: buddyGenericImage
                     anchors.fill: parent
-                    sourceSize.width: parent.width
+                    sourceSize: Qt.size(width, height)
+                    mipmap: true
                     fillMode: Image.PreserveAspectFit
                     anchors.margins: 5
                 }
                 Image {
                     id: buddyAvatarImage
                     anchors.fill: parent
-                    sourceSize.width: 64
+                    sourceSize: Qt.size(width, height)
                     fillMode: Image.PreserveAspectFit
                     anchors.margins: 5
                     smooth: true
+                    mipmap: true
                 }
             }
 
@@ -77,6 +79,10 @@ Flipable {
                 Image {
                     id: buddyOsLogoImage
                     anchors.fill: parent
+                    anchors.margins: 5
+                    sourceSize: Qt.size(width, height)
+                    fillMode: Image.PreserveAspectFit
+                    mipmap: true
                 }
             }
 
