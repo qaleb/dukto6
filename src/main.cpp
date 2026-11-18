@@ -6,6 +6,7 @@
 #include <QIcon>
 #include <QFile>
 #include <QStringList>
+#include <QTimer>
 
 #include "guibehind.h"
 
@@ -42,9 +43,11 @@ int main(int argc, char *argv[])
     // qDebug() << "FileUtils exists?" << QFile::exists(":/src/libs/FileUtils.java");
 
     // Use the singleton instance of GuiBehind
-    GuiBehind::instance(engine);
+    auto &backend = GuiBehind::instance(engine);
 
     engine.loadFromModule("dukto6", "Main");
+    if (engine.rootObjects().isEmpty()) return 1;
+    QTimer::singleShot(0, &backend, &GuiBehind::readyForShares);
 
     return app.exec();
 }

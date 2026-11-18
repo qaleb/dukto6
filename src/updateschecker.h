@@ -1,27 +1,18 @@
-#ifndef UPDATESCHECKER_H
-#define UPDATESCHECKER_H
-
-#include <QThread>
-
+#pragma once
+#include <QObject>
 class QNetworkAccessManager;
 class QNetworkReply;
 
-class UpdatesChecker : public QThread
-{
+// Qt networking is asynchronous; an idle update-check thread is unnecessary.
+class UpdatesChecker : public QObject {
     Q_OBJECT
 public:
-    explicit UpdatesChecker();
-    virtual ~UpdatesChecker();
-    void run();
-
+    explicit UpdatesChecker(QObject *parent = nullptr);
+public slots:
+    void start();
+    void updatedDataReady(QNetworkReply *reply);
 signals:
     void updatesAvailable();
-
-public slots:
-    void updatedDataReady(QNetworkReply *reply);
-
 private:
-    QNetworkAccessManager *mNetworkAccessManager;
+    QNetworkAccessManager *mNetworkAccessManager = nullptr;
 };
-
-#endif // UPDATESCHECKER_H

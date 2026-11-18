@@ -78,7 +78,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 32
                     height: 32
-                    color: theme.color2
+                    color: theme.accentForeground
                     Image {
                         source: typeIcon
                         width: 32

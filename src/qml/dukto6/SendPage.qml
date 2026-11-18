@@ -117,6 +117,7 @@ Rectangle {
 
     Rectangle {
         id: destRect
+        color: theme.color6
         visible: destinationBuddy.ip === "IP"
         anchors {
             right: localBuddy.right
@@ -195,8 +196,11 @@ Rectangle {
         }
         width: 300
         buttonEnabled: guiBehind.currentTransferBuddy !== ""
-        label: qsTr("Send some files")
-        onClicked: fileDialog.open()
+        label: guiBehind.hasPendingShare ? qsTr("Send shared content") : qsTr("Send some files")
+        onClicked: {
+            if (guiBehind.hasPendingShare) guiBehind.sendPendingShare();
+            else fileDialog.open();
+        }
     }
 
     ButtonDark {

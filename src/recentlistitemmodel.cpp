@@ -52,4 +52,11 @@ void RecentListItemModel::addRecent(QString name, QString value, QString type, Q
     it->setData(sender, RecentListItemModel::Sender);
     it->setData(sizeFormatted, RecentListItemModel::Size);
     insertRow(0, it);
+    qint64 retained = 0;
+    for (int row = 0; row < rowCount(); ++row)
+        retained += qint64(item(row)->data(Value).toString().size()) * sizeof(QChar);
+    while (rowCount() > 100 || (retained > 32 * 1024 * 1024 && rowCount() > 0)) {
+        retained -= qint64(item(rowCount() - 1)->data(Value).toString().size()) * sizeof(QChar);
+        removeRow(rowCount() - 1);
+    }
 }

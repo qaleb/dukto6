@@ -4,6 +4,7 @@ Text {
     transformOrigin: Item.TopLeft
     scale: 0.5
     smooth: true
-    color: theme.color6
+    color: theme.accentText
+    linkColor: theme.accentForeground
     font.family: duktofont.name
 }

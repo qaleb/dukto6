@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' version '8.8.0' }
+android {
+    namespace 'dev.dukto.storagecheck'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'dev.dukto.storagecheck'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '1'
+    }
+    sourceSets.main.java {
+        srcDirs = ['src/main/java', "${buildDir}/generated/storage"]
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+tasks.register('copyStorageSources', Copy) {
+    from '../../android/src'
+    include 'idv/coolshou/DuktoStorage.java', 'idv/coolshou/DuktoStoragePolicy.java'
+    into "${buildDir}/generated/storage"
+}
+tasks.named('preBuild').configure { dependsOn 'copyStorageSources' }

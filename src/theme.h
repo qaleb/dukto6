@@ -16,6 +16,10 @@ class Theme : public QObject
     Q_PROPERTY(QString color7 READ color7 NOTIFY color7Changed)
     Q_PROPERTY(QString color8 READ color8 NOTIFY color8Changed)
     Q_PROPERTY(QString color9 READ color9 NOTIFY color9Changed)
+    Q_PROPERTY(QString mode READ mode NOTIFY modeChanged)
+    Q_PROPERTY(bool dark READ dark NOTIFY paletteChanged)
+    Q_PROPERTY(QString accentText READ accentText CONSTANT)
+    Q_PROPERTY(QString accentForeground READ accentForeground NOTIFY paletteChanged)
 
 public:
     explicit Theme(QObject *parent = 0);
@@ -29,10 +33,17 @@ public:
     inline QString color8() { return mColor8; }
     inline QString color9() { return mColor9; }
     void setThemeColor(QString color);
+    QString mode() const { return mMode; }
+    bool dark() const { return mDark; }
+    QString accentText() const { return QStringLiteral("#ffffff"); }
+    QString accentForeground() const { return mDark ? mColor3 : mColor2; }
+    void setMode(const QString &mode);
 
     static const QString DEFAULT_THEME_COLOR;
 
 signals:
+    void modeChanged();
+    void paletteChanged();
     void color1Changed();
     void color2Changed();
     void color3Changed();
@@ -49,6 +60,11 @@ public slots:
     float getLightness(QString color);
 
 private:
+    bool eventFilter(QObject *object, QEvent *event) override;
+    void refreshPalette();
+    QString mMode = QStringLiteral("system");
+    bool mDark = false;
+    Qt::ColorScheme mSystemScheme = Qt::ColorScheme::Unknown;
     QString mColor1;
     QString mColor2;
     QString mColor3;

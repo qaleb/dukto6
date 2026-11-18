@@ -38,6 +38,7 @@ Rectangle {
     Rectangle {
         id: rectangleText
         border.color: theme.color3
+        color: theme.color6
         border.width: 1
         anchors.top: boxSender.bottom
         anchors.topMargin: 10

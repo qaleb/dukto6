@@ -13,7 +13,7 @@ Rectangle {
     Rectangle {
         id: disabler
         anchors.fill: parent
-        color: "#ccffffff"
+        color: theme.color9
         opacity: 0
         visible: false
 
@@ -89,6 +89,7 @@ Rectangle {
 
     ConfirmReceivePage {
         id: confirmReceivePage
+        objectName: "receiveConfirmation"
         anchors.centerIn: parent
         width: parent.width
         height: parent.height

@@ -9,7 +9,7 @@ set -o pipefail
 
 # === CONFIGURATION ===
 APP_NAME="dukto6"
-VERSION="6.9.6"
+VERSION="6.9.9"
 PKG_DIR="${APP_NAME}_${VERSION}"
 DIST_DIR="DistributionKit"
 DIST_DIR_ABS="${PWD}/${DIST_DIR}"

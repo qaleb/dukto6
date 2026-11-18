@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto VERSION 6.9.6 LANGUAGES CXX)
+project(dukto VERSION 6.9.9 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -9,10 +9,7 @@ include(GNUInstallDirs)
 
 # Find required Qt6 modules
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network Quick Qml)
-if(ANDROID)
-    # The existing Android permission bridge uses qandroidextras_p.h.
-    find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
-else()
+if(NOT ANDROID)
     find_package(Qt6 REQUIRED COMPONENTS Widgets)
 endif()
 
@@ -22,7 +19,7 @@ if(DUKTO_BUILD_TESTS AND NOT ANDROID)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     qt_add_executable(discovery_tests
         tests/discovery_tests.cpp
-        src/duktoprotocol.cpp src/duktoprotocol.h
+        src/duktoprotocol.cpp src/duktoprotocol.h src/transfersource.cpp src/receivedfile.cpp
         src/platform.cpp src/settings.cpp src/settings.h
         src/theme.cpp src/theme.h
     )
@@ -32,6 +29,34 @@ if(DUKTO_BUILD_TESTS AND NOT ANDROID)
         target_link_libraries(discovery_tests PRIVATE ws2_32)
     endif()
     add_test(NAME discovery COMMAND discovery_tests)
+    qt_add_executable(transfer_tests
+        tests/transfer_tests.cpp
+        src/duktoprotocol.cpp src/duktoprotocol.h src/transfersource.cpp src/receivedfile.cpp
+        src/transferqueue.cpp src/transferqueue.h
+        src/platform.cpp src/settings.cpp src/settings.h
+        src/theme.cpp src/theme.h src/recentlistitemmodel.cpp src/recentlistitemmodel.h
+    )
+    target_include_directories(transfer_tests PRIVATE src)
+    target_link_libraries(transfer_tests PRIVATE Qt6::Test Qt6::Network Qt6::Widgets)
+    add_test(NAME transfers COMMAND transfer_tests)
+    qt_add_executable(theme_tests tests/theme_tests.cpp src/theme.cpp src/theme.h)
+    target_include_directories(theme_tests PRIVATE src)
+    target_link_libraries(theme_tests PRIVATE Qt6::Test Qt6::Gui)
+    add_test(NAME theme COMMAND theme_tests)
+    set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    find_package(Java QUIET COMPONENTS Runtime Development)
+    if(Java_FOUND)
+        set(STORAGE_POLICY_CLASSES "${CMAKE_CURRENT_BINARY_DIR}/storage-policy-tests")
+        add_custom_command(OUTPUT "${STORAGE_POLICY_CLASSES}/idv/coolshou/StoragePolicyTest.class"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${STORAGE_POLICY_CLASSES}"
+            COMMAND ${Java_JAVAC_EXECUTABLE} -d "${STORAGE_POLICY_CLASSES}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/android/src/idv/coolshou/DuktoStoragePolicy.java"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/StoragePolicyTest.java"
+            DEPENDS android/src/idv/coolshou/DuktoStoragePolicy.java tests/StoragePolicyTest.java
+            VERBATIM)
+        add_custom_target(storage_policy_tests ALL DEPENDS "${STORAGE_POLICY_CLASSES}/idv/coolshou/StoragePolicyTest.class")
+        add_test(NAME storage_policy COMMAND ${Java_JAVA_EXECUTABLE} -cp "${STORAGE_POLICY_CLASSES}" idv.coolshou.StoragePolicyTest)
+    endif()
 endif()
 
 # Set Qt policies
@@ -51,6 +76,10 @@ set(SOURCES
     src/buddylistitemmodel.cpp
     src/destinationbuddy.cpp
     src/duktoprotocol.cpp
+    src/transfersource.cpp
+    src/receivedfile.cpp
+    src/transferqueue.cpp
+    src/androidsharebridge.cpp
     src/guibehind.cpp
     src/ipaddressitemmodel.cpp
     src/main.cpp
@@ -66,6 +95,11 @@ set(HEADERS
     src/buddylistitemmodel.h
     src/destinationbuddy.h
     src/duktoprotocol.h
+    src/transfersource.h
+    src/receivedfile.h
+    src/transferrequest.h
+    src/transferqueue.h
+    src/androidsharebridge.h
     src/guibehind.h
     src/ipaddressitemmodel.h
     src/miniwebserver.h
@@ -85,11 +119,34 @@ endif()
 
 qt_add_executable(dukto6 ${SOURCES} ${HEADERS})
 
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    # Ship the desktop appearance/portal plugins so System mode also works in bundled packages.
+    foreach(theme_plugin Qt6::QGtk3ThemePlugin Qt6::QXdgDesktopPortalThemePlugin)
+        if(TARGET ${theme_plugin})
+            qt_import_plugins(dukto6 INCLUDE ${theme_plugin})
+        endif()
+    endforeach()
+endif()
+
+if(DUKTO_BUILD_TESTS AND NOT ANDROID)
+    set(COORDINATOR_SOURCES ${SOURCES})
+    list(REMOVE_ITEM COORDINATOR_SOURCES src/main.cpp)
+    qt_add_executable(coordinator_tests tests/coordinator_tests.cpp ${COORDINATOR_SOURCES} ${HEADERS})
+    target_include_directories(coordinator_tests PRIVATE src)
+    target_link_libraries(coordinator_tests PRIVATE Qt6::Test Qt6::Quick Qt6::Qml Qt6::Widgets Qt6::Network)
+    if(WIN32)
+        target_link_libraries(coordinator_tests PRIVATE ole32 uuid user32)
+    endif()
+    add_test(NAME coordinator COMMAND coordinator_tests)
+    set_tests_properties(coordinator PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Add QML module
 qt_add_qml_module(dukto6
     URI dukto6
     QML_FILES
         src/qml/dukto6/AboutPage.qml
+        src/qml/dukto6/ActionButton.qml
         src/qml/dukto6/BottomToolBar.qml
         src/qml/dukto6/BuddiesPage.qml
         src/qml/dukto6/BuddyListComponent.qml
@@ -146,9 +203,7 @@ target_link_libraries(dukto6
     PRIVATE Qt6::Core
     PRIVATE Qt6::Network
 )
-if(ANDROID)
-    target_link_libraries(dukto6 PRIVATE Qt6::CorePrivate)
-else()
+if(NOT ANDROID)
     target_link_libraries(dukto6 PRIVATE Qt6::Widgets)
 endif()
 if(WIN32)
@@ -223,6 +278,8 @@ endif()
 # Packaging (DEB format for Linux)
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     set(CPACK_PACKAGE_NAME "Dukto")
+    # Match the existing installed package so new builds upgrade it in place.
+    set(CPACK_DEBIAN_PACKAGE_NAME "dukto6")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Caleb <drmaangi@gmail.com>")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")

@@ -13,6 +13,8 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 #include <QThread>
+#include <QPointer>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTimer>
 #include <QClipboard>
@@ -29,25 +31,22 @@
 #endif
 
 #define NETWORK_PORT 4644 // 6742
-#define MAX_QUEUE_RETRIES 2
 
 #if defined(Q_OS_ANDROID)
-#include <QtCore/private/qandroidextras_p.h>
 #include <QJniEnvironment>
 #endif
 
 // The constructor is private and can only be called within the singleton instance method
-GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
+GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent, quint16 port) :
     QObject(parent), mShowBackTimer(NULL), mPeriodicHelloTimer(NULL), mClipboard(NULL),
     mMiniWebServer(NULL), mSettings(this), mDestBuddy(NULL), mUpdatesChecker(NULL)
 {
-#if defined(Q_OS_ANDROID)
-    requestPermissions();
-#endif
     // Other platforms can be re-added here if needed
 
     // Change current folder
-    QDir::setCurrent(currentPath());
+    const QString initialPath = currentPath();
+    QDir().mkpath(initialPath);
+    QDir::setCurrent(initialPath);
 
     // QString rootPath = QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).value(0);
     // qDebug() << "The general download path is:" << rootPath;
@@ -73,10 +72,14 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     mDestBuddy = new DestinationBuddy(this);
 
     // Mini web server
-    mMiniWebServer = new MiniWebServer(NETWORK_PORT + 1);
+    if (port) {
+        mMiniWebServer = new MiniWebServer(port + 1);
+        mMiniWebServer->setParent(this);
+    }
 
     // Initialize and set the current theme color
     mTheme.setThemeColor(mSettings.themeColor());
+    mTheme.setMode(mSettings.themeMode());
 
     // Expose instances to QML context
     engine.rootContext()->setContextProperty("buddiesListData", &mBuddiesList);
@@ -86,26 +89,64 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     engine.rootContext()->setContextProperty("destinationBuddy", mDestBuddy);
     engine.rootContext()->setContextProperty("theme", &mTheme);
 
+    mDuktoProtocol = new DuktoProtocol;
+    mDuktoProtocol->moveToThread(&mProtocolThread);
+    connect(&mProtocolThread, &QThread::finished, mDuktoProtocol, &QObject::deleteLater);
+    connect(&mTransfers, &TransferQueue::startRequested, this, &GuiBehind::startJob);
+    connect(mDuktoProtocol, &DuktoProtocol::transferError, this,
+            [this](const QString &error) { mLastTransferError = error; });
+    connect(mDuktoProtocol, &DuktoProtocol::discoveryError, this,
+            [](const QString &error) { qWarning().noquote() << error; });
+    connect(mDuktoProtocol, &DuktoProtocol::incomingTransferDismissed,
+            this, &GuiBehind::dismissIncomingTransfer);
+    connect(&mAndroidShares, &AndroidShareBridge::shareReceived, this, &GuiBehind::stageShare);
+    connect(&mAndroidShares, &AndroidShareBridge::storageChanged, this, &GuiBehind::androidStorageChanged);
+    connect(&mAndroidShares, &AndroidShareBridge::keyboardTopChanged, this, [this](int pixels) {
+        if (mAndroidKeyboardTopPixels == pixels) return;
+        mAndroidKeyboardTopPixels = pixels;
+        emit androidKeyboardChanged();
+    });
+#if defined(Q_OS_ANDROID)
+    connect(mDuktoProtocol, &DuktoProtocol::receivedFilePublished, this,
+            [this](const QString &uri, const QString &name, qint64 size) {
+        mRecentList.addRecent(name, uri, "file", mCurrentTransferBuddy, size);
+    });
+#endif
+    connect(&mAndroidShares, &AndroidShareBridge::serviceUnavailable, this, [this] {
+#if defined(Q_OS_ANDROID)
+        mAndroidServiceActive = false;
+#endif
+        mTransfers.setPaused(true);
+        abortTransfer();
+        showError(tr("Android stopped the transfer service. Return to Dukto to continue queued transfers."));
+    });
+    mProtocolThread.start();
+
     // Register protocol signals
-    connect(&mDuktoProtocol, SIGNAL(peerListAdded(Peer)), this, SLOT(peerListAdded(Peer)));
-    connect(&mDuktoProtocol, SIGNAL(peerListRemoved(Peer)), this, SLOT(peerListRemoved(Peer)));
-    connect(&mDuktoProtocol, SIGNAL(incomingTransferRequested(QString)), this, SLOT(incomingTransferRequested(QString)));
-    connect(&mDuktoProtocol, SIGNAL(receiveFileStart(QString)), this, SLOT(receiveFileStart(QString)));
-    connect(&mDuktoProtocol, SIGNAL(transferStatusUpdate(qint64,qint64)), this, SLOT(transferStatusUpdate(qint64,qint64)));
-    connect(&mDuktoProtocol, SIGNAL(receiveFileComplete(QStringList*,qint64)), this, SLOT(receiveFileComplete(QStringList*,qint64)));
-    connect(&mDuktoProtocol, SIGNAL(receiveTextComplete(QString*,qint64)), this, SLOT(receiveTextComplete(QString*,qint64)));
-    connect(&mDuktoProtocol, SIGNAL(sendFileComplete()), this, SLOT(sendFileComplete()));
-    connect(&mDuktoProtocol, SIGNAL(sendFileError(int)), this, SLOT(sendFileError(int)));
-    connect(&mDuktoProtocol, SIGNAL(receiveFileCancelled()), this, SLOT(receiveFileCancelled()));
-    connect(&mDuktoProtocol, SIGNAL(sendFileAborted()), this, SLOT(sendFileAborted()));
+    connect(mDuktoProtocol, SIGNAL(peerListAdded(Peer)), this, SLOT(peerListAdded(Peer)));
+    connect(mDuktoProtocol, SIGNAL(peerListRemoved(Peer)), this, SLOT(peerListRemoved(Peer)));
+    connect(mDuktoProtocol, SIGNAL(incomingTransferRequested(QString)), this, SLOT(incomingTransferRequested(QString)));
+    connect(mDuktoProtocol, SIGNAL(receiveFileStart(QString)), this, SLOT(receiveFileStart(QString)));
+    connect(mDuktoProtocol, SIGNAL(transferStatusUpdate(qint64,qint64)), this, SLOT(transferStatusUpdate(qint64,qint64)));
+    connect(mDuktoProtocol, SIGNAL(receiveFileComplete(QStringList,qint64)), this, SLOT(receiveFileComplete(QStringList,qint64)));
+    connect(mDuktoProtocol, SIGNAL(receiveTextComplete(QString,qint64)), this, SLOT(receiveTextComplete(QString,qint64)));
+    connect(mDuktoProtocol, SIGNAL(sendFileComplete()), this, SLOT(sendFileComplete()));
+    connect(mDuktoProtocol, SIGNAL(sendFileError(int)), this, SLOT(sendFileError(int)));
+    connect(mDuktoProtocol, SIGNAL(receiveFileCancelled()), this, SLOT(receiveFileCancelled()));
+    connect(mDuktoProtocol, SIGNAL(sendFileAborted()), this, SLOT(sendFileAborted()));
 
     // Register other signals
     connect(this, SIGNAL(remoteDestinationAddressChanged()), this, SLOT(remoteDestinationAddressHandler()));
 
     // Say "hello"
-    mDuktoProtocol.setPorts(NETWORK_PORT, NETWORK_PORT);
-    mDuktoProtocol.initialize();
-    mDuktoProtocol.sayHello(QHostAddress::Broadcast);
+    const QString destination = currentPath();
+    QDir().mkpath(destination);
+    QMetaObject::invokeMethod(mDuktoProtocol, [this, port, destination] {
+        mDuktoProtocol->setPorts(qint16(port), qint16(port));
+        mDuktoProtocol->setReceivePath(destination);
+        mDuktoProtocol->initialize();
+        if (port) mDuktoProtocol->sayHello(QHostAddress::Broadcast);
+    });
 
     // Periodic "hello" timer
     mPeriodicHelloTimer = new QTimer(this);
@@ -120,7 +161,7 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
     mShowBackTimer->start(10000);
 
     // Enqueue check for updates
-    mUpdatesChecker = new UpdatesChecker();
+    mUpdatesChecker = new UpdatesChecker(this);
     connect(mUpdatesChecker, SIGNAL(updatesAvailable()), this, SLOT(showUpdatesMessage()));
     QTimer::singleShot(2000, mUpdatesChecker, SLOT(start()));
 
@@ -134,100 +175,51 @@ GuiBehind::GuiBehind(QQmlApplicationEngine &engine, QObject *parent) :
 #endif
 
 #if defined(Q_OS_ANDROID)
-    const QStringList sharedUris = takePendingAndroidShareUris().split('\n', Qt::SkipEmptyParts);
-    if (!sharedUris.isEmpty())
-        sendSomeFiles(sharedUris);
-
-    QTimer *shareIntentPollTimer = new QTimer(this);
-    connect(shareIntentPollTimer, &QTimer::timeout, this, [this]() {
-        const QStringList incoming = takePendingAndroidShareUris().split('\n', Qt::SkipEmptyParts);
-        if (!incoming.isEmpty())
-            sendSomeFiles(incoming);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        const bool foreground = state == Qt::ApplicationActive;
+        if (foreground) {
+            mShowBackTimer->start(10000);
+            mPeriodicHelloTimer->start(60000);
+        } else {
+            mShowBackTimer->stop();
+            mPeriodicHelloTimer->stop();
+        }
+        mTransfers.setPaused(!foreground && !mAndroidServiceActive);
+        QMetaObject::invokeMethod(mDuktoProtocol, [this, foreground] {
+            mDuktoProtocol->setReceivingEnabled(foreground);
+            if (foreground) mDuktoProtocol->sayHello(QHostAddress::Broadcast);
+            else mDuktoProtocol->sayGoodbye();
+        });
     });
-    shareIntentPollTimer->start(1000);
 #endif
 }
 
 #if defined(Q_OS_ANDROID)
 void GuiBehind::setAndroidTransferActive(bool active)
 {
+    if (mAndroidServiceActive == active) return;
+    mAndroidServiceActive = active;
+    if (!active && QGuiApplication::applicationState() != Qt::ApplicationActive) mTransfers.setPaused(true);
     QJniObject context = QNativeInterface::QAndroidApplication::context();
-    if (!context.isValid())
-        return;
-
-    const jint keepScreenOnFlag = 128; // WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
-    if (activity.isValid()) {
-        QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
-        if (window.isValid()) {
-            if (active) {
-                window.callMethod<void>("addFlags", "(I)V", keepScreenOnFlag);
-            } else {
-                window.callMethod<void>("clearFlags", "(I)V", keepScreenOnFlag);
-            }
-        }
-    }
-
-    QJniObject::callStaticMethod<void>(
-        "idv/coolshou/DuktoBridge",
-        "setTransferForeground",
-        "(Landroid/content/Context;Z)V",
-        context.object<jobject>(),
-        static_cast<jboolean>(active));
+    if (!context.isValid()) return;
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoBridge", "setTransferForeground",
+        "(Landroid/content/Context;Z)V", context.object<jobject>(), jboolean(active));
 }
 
-QString GuiBehind::takePendingAndroidShareUris()
-{
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
-    if (!activity.isValid())
-        return QString();
 
-    QJniObject uris = QJniObject::callStaticObjectMethod(
-        "idv/coolshou/DuktoBridge",
-        "consumePendingShareUris",
-        "(Landroid/app/Activity;)Ljava/lang/String;",
-        activity.object<jobject>());
-    if (!uris.isValid())
-        return QString();
-    return uris.toString();
-}
 
-// Request Permissions on Android
-bool GuiBehind::requestPermissions() {
-    const int sdkVersion = QNativeInterface::QAndroidApplication::sdkVersion();
-    QStringList permissionList;
-
-    if (sdkVersion >= 33) {
-        permissionList << "android.permission.READ_MEDIA_IMAGES"
-                       << "android.permission.READ_MEDIA_VIDEO"
-                       << "android.permission.READ_MEDIA_AUDIO";
-    } else {
-        permissionList << "android.permission.READ_EXTERNAL_STORAGE";
-        if (sdkVersion <= 28)
-            permissionList << "android.permission.WRITE_EXTERNAL_STORAGE";
-    }
-
-    bool allGranted = true;
-    for (const QString &permission : permissionList) {
-        auto result = QtAndroidPrivate::checkPermission(permission).result();
-        if (result != QtAndroidPrivate::Authorized) {
-            result = QtAndroidPrivate::requestPermission(permission).result();
-            if (result == QtAndroidPrivate::Denied) {
-                allGranted = false;
-            }
-        }
-    }
-
-    return allGranted;
-}
-
-// NOTE: For content URIs, you cannot use QFile directly. You must use JNI to obtain an InputStream or file descriptor.
-// See convertContentUriToFilePath or implement a method to open a stream from URI using JNI and pass it to Qt.
 #endif
 
 QRect GuiBehind::windowGeometry()
 {
     return mSettings.windowRect();
+}
+
+qreal GuiBehind::androidKeyboardTop() const
+{
+    if (mAndroidKeyboardTopPixels < 0) return -1;
+    const auto *screen = QGuiApplication::primaryScreen();
+    return mAndroidKeyboardTopPixels / (screen ? screen->devicePixelRatio() : 1.0);
 }
 
 void GuiBehind::setWindowGeometry(QRect geo)
@@ -276,6 +268,8 @@ void GuiBehind::clipboardChanged()
 
 void GuiBehind::receiveFileStart(QString senderIp)
 {
+    mActiveJobId.clear();
+    mActiveCancellation.reset();
     // Look for the sender in the buddy list
     QString sender = mBuddiesList.buddyNameByIp(senderIp);
     if (sender == "")
@@ -296,14 +290,15 @@ void GuiBehind::receiveFileStart(QString senderIp)
 
 void GuiBehind::incomingTransferRequested(QString senderIp)
 {
+    mTransfers.setReceiving(true);
+    mLastTransferError.clear();
     if (!confirmBeforeReceive()) {
-        mDuktoProtocol.acceptIncomingTransfer();
+        QMetaObject::invokeMethod(mDuktoProtocol, &DuktoProtocol::acceptIncomingTransfer);
         return;
     }
-
     mPendingIncomingSender = senderIp;
     emit pendingIncomingSenderChanged();
-    setOverlayState("confirmreceive");
+    emit gotoConfirmReceivePage();
 }
 
 void GuiBehind::transferStatusUpdate(qint64 total, qint64 partial)
@@ -316,7 +311,7 @@ void GuiBehind::transferStatusUpdate(qint64 total, qint64 partial)
     else
         setCurrentTransferStats(QString::number(partial * 1.0 / 1048576, 'f', 1) + " MB of " + QString::number(total * 1.0 / 1048576, 'f', 1) + " MB");
 
-    double percent = partial * 1.0 / total * 100;
+    const int percent = total > 0 ? qBound(0, int(100.0 * partial / total), 100) : 0;
     setCurrentTransferProgress(percent);
 
 #if defined(Q_OS_WIN)
@@ -327,14 +322,18 @@ void GuiBehind::transferStatusUpdate(qint64 total, qint64 partial)
     // mView->win7()->setProgressValue(percent, 100);
 }
 
-void GuiBehind::receiveFileComplete(QStringList *files, qint64 totalSize) {
+void GuiBehind::receiveFileComplete(QStringList files, qint64 totalSize) {
 
     // Add an entry to recent activities
+#if !defined(Q_OS_ANDROID)
     QDir d(".");
-    if (files->size() == 1)
-        mRecentList.addRecent(files->at(0), d.absoluteFilePath(files->at(0)), "file", mCurrentTransferBuddy, totalSize);
+    if (files.size() == 1)
+        mRecentList.addRecent(files.at(0), d.absoluteFilePath(files.at(0)), "file", mCurrentTransferBuddy, totalSize);
     else
         mRecentList.addRecent(tr("Files and folders"), d.absolutePath(), "misc", mCurrentTransferBuddy, totalSize);
+#else
+    Q_UNUSED(files); Q_UNUSED(totalSize);
+#endif
 
     // Update GUI
     // mView->win7()->setProgressState(EcWin7::NoProgress);
@@ -356,16 +355,17 @@ void GuiBehind::receiveFileComplete(QStringList *files, qint64 totalSize) {
     }
 #endif
 
+    mTransfers.setReceiving(false);
 #if defined(Q_OS_ANDROID)
-    setAndroidTransferActive(false);
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
 #endif
     emit receiveCompleted();
 }
 
-void GuiBehind::receiveTextComplete(QString *text, qint64 totalSize)
+void GuiBehind::receiveTextComplete(QString text, qint64 totalSize)
 {
     // Add an entry to recent activities
-    mRecentList.addRecent(tr("Text snippet"), *text, "text", mCurrentTransferBuddy, totalSize);
+    mRecentList.addRecent(tr("Text snippet"), text, "text", mCurrentTransferBuddy, totalSize);
 
     // Update GUI
     // mView->win7()->setProgressState(EcWin7::NoProgress);
@@ -387,8 +387,9 @@ void GuiBehind::receiveTextComplete(QString *text, qint64 totalSize)
     }
 #endif
 
+    mTransfers.setReceiving(false);
 #if defined(Q_OS_ANDROID)
-    setAndroidTransferActive(false);
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
 #endif
     emit receiveCompleted();
 }
@@ -404,44 +405,10 @@ void GuiBehind::showTextSnippet(QString text, QString sender)
 void GuiBehind::openFile(QString path)
 {
 #if defined(Q_OS_ANDROID)
-    // Use Android Intent to open file
     QJniObject context = QNativeInterface::QAndroidApplication::context();
-    if (!context.isValid()) return;
-
-    QJniObject filePath = QJniObject::fromString(path);
-    QJniObject fileObj("java/io/File", "(Ljava/lang/String;)V", filePath.object<jstring>());
-    if (!fileObj.isValid()) return;
-
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "androidx/core/content/FileProvider",
-        "getUriForFile",
-        "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
-        context.object<jobject>(),
-        QJniObject::fromString(context.callObjectMethod("getPackageName", "()Ljava/lang/String;").toString() + ".qtprovider").object<jstring>(),
-        fileObj.object<jobject>()
-    );
-    if (!uri.isValid()) return;
-
-    // Get MIME type
-    QJniObject contentResolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
-    QJniObject mimeType = contentResolver.callObjectMethod(
-        "getType",
-        "(Landroid/net/Uri;)Ljava/lang/String;",
-        uri.object<jobject>()
-    );
-    QString mime = mimeType.isValid() ? mimeType.toString() : "application/octet-stream";
-
-    // Create intent
-    QJniObject intent("android/content/Intent", "(Ljava/lang/String;)V",
-                      QJniObject::fromString("android.intent.action.VIEW").object<jstring>());
-    intent.callObjectMethod("setDataAndType",
-                            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
-                            uri.object<jobject>(),
-                            QJniObject::fromString(mime).object<jstring>());
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 1 /* FLAG_GRANT_READ_URI_PERMISSION */);
-
-    // Start activity
-    context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object<jobject>());
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoBridge", "openReceivedFile",
+        "(Landroid/content/Context;Ljava/lang/String;)V", context.object<jobject>(),
+        QJniObject::fromString(path).object<jstring>());
 #else
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 #endif
@@ -449,7 +416,9 @@ void GuiBehind::openFile(QString path)
 
 void GuiBehind::openDestinationFolder() {
 #if defined(Q_OS_ANDROID)
-    QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::currentPath()));
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoActivity", "browseReceivedFiles",
+        "(Landroid/content/Context;)V", context.object<jobject>());
 #else
     QDesktopServices::openUrl(QUrl::fromLocalFile(QDir::currentPath()));
 #endif
@@ -511,6 +480,7 @@ void GuiBehind::showSendPage(QString ip)
 
     // Show send UI
     emit gotoSendPage();
+    if (hasPendingShare() && ip != "IP") sendPendingShare();
 }
 
 void GuiBehind::sendDroppedFiles(const QStringList &files)
@@ -563,191 +533,17 @@ void GuiBehind::sendBuddyDroppedFiles(const QStringList &urls)
 
 void GuiBehind::sendSomeFiles(const QStringList &files)
 {
+    QStringList sources = files;
 #if defined(Q_OS_WIN)
-    QStringList localPaths;
-    // Convert file URLs to local file paths if needed
-    for (const QString &file : files) {
-        QUrl fileUrl(file);
-        if (fileUrl.isLocalFile()) {
-            QString path = fileUrl.toLocalFile();
-            path.replace("\\", "/");
-            localPaths.append(path);
-        } else {
-            // If not a file URL, assume it's a direct path
-            QString path = file;
-            path.replace("\\", "/");
-            localPaths.append(path);
-        }
-    }
-    if (localPaths.isEmpty()) {
-        localPaths = QFileDialog::getOpenFileNames(nullptr, tr("Send some files"));
-        if (localPaths.isEmpty()) return;
-        // Normalize all paths to forward slashes
-        for (QString &path : localPaths) {
-            path.replace("\\", "/");
-        }
-    }
-    startTransfer(localPaths);
-#else
-    if (files.isEmpty()) return;
-    QStringList localPaths;
-#if defined(Q_OS_ANDROID)
-    mTempFilesForTransfer.clear();
+    if (sources.isEmpty()) sources = QFileDialog::getOpenFileNames(nullptr, tr("Send some files"));
 #endif
-
-    foreach (const QString &file, files) {
-#if defined(Q_OS_ANDROID)
-        QUrl fileUrl(file);
-        if (fileUrl.scheme() == "content") {
-            // Copy content URI to temp file
-            QString tempFilePath = copyContentUriToTempFile(file);
-            if (!tempFilePath.isEmpty()) {
-                tempFilePath.replace("\\", "/"); // Normalize to forward slashes
-                localPaths.append(tempFilePath);
-                mTempFilesForTransfer.append(tempFilePath);
-            }
-            continue;
-        }
-#endif
-#if !defined(Q_OS_ANDROID)
-        QUrl fileUrl(file);
-#endif
-        if (fileUrl.isLocalFile()) {
-            QString path = fileUrl.toLocalFile();
-            path.replace("\\", "/"); // Normalize to forward slashes
-            localPaths.append(path);
-        }
-    }
-
-    if (localPaths.isEmpty()) return;
-
-    // Send files
-    startTransfer(localPaths);
-#endif
+    if (!sources.isEmpty()) startTransfer(sources);
 }
 
 void GuiBehind::sendAllFiles(const QStringList &files)
 {
-    if (files.isEmpty()) return;
-
-    QStringList localPaths;
-
-    foreach (const QString &file, files) {
-        QUrl fileUrl(file);
-        if (fileUrl.isLocalFile()) {
-            QString path = fileUrl.toLocalFile();
-            path.replace("\\", "/"); // Normalize to forward slashes
-            localPaths.append(path);
-        }
-    }
-
-    // Send files
-    QStringList toSend = localPaths;
-    startTransfer(toSend);
+    if (!files.isEmpty()) startTransfer(files);
 }
-
-// JNI helper: copy content URI to temp file and return its path
-#if defined(Q_OS_ANDROID)
-QString GuiBehind::copyContentUriToTempFile(const QString &uri) {
-    QJniObject context = QNativeInterface::QAndroidApplication::context();
-    if (!context.isValid()) return QString();
-
-    QJniObject jUriString = QJniObject::fromString(uri);
-    QJniObject uriObj = QJniObject::callStaticObjectMethod(
-        "android/net/Uri",
-        "parse",
-        "(Ljava/lang/String;)Landroid/net/Uri;",
-        jUriString.object<jstring>()
-    );
-    if (!uriObj.isValid()) return QString();
-
-    // Query original filename from content resolver
-    QString displayName = "file";
-    QJniObject contentResolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
-    if (contentResolver.isValid()) {
-        QJniEnvironment env;
-        jclass stringClass = env->FindClass("java/lang/String");
-        jobjectArray projArray = env->NewObjectArray(1, stringClass, nullptr);
-        QJniObject colName = QJniObject::fromString("_display_name");
-        env->SetObjectArrayElement(projArray, 0, colName.object<jobject>());
-        QJniObject cursor = contentResolver.callObjectMethod(
-            "query",
-            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
-            uriObj.object<jobject>(),
-            projArray,
-            nullptr,
-            nullptr,
-            nullptr
-        );
-        if (cursor.isValid()) {
-            jobject jCursor = cursor.object<jobject>();
-            jclass cursorClass = env->GetObjectClass(jCursor);
-            jmethodID moveToFirst = env->GetMethodID(cursorClass, "moveToFirst", "()Z");
-            if (env->CallBooleanMethod(jCursor, moveToFirst)) {
-                jmethodID getColumnIndex = env->GetMethodID(cursorClass, "getColumnIndex", "(Ljava/lang/String;)I");
-                jint colIdx = env->CallIntMethod(jCursor, getColumnIndex, colName.object<jstring>());
-                jmethodID getString = env->GetMethodID(cursorClass, "getString", "(I)Ljava/lang/String;");
-                jstring jDisplayName = (jstring)env->CallObjectMethod(jCursor, getString, colIdx);
-                if (jDisplayName) {
-                    const char *cstr = env->GetStringUTFChars(jDisplayName, nullptr);
-                    displayName = QString::fromUtf8(cstr);
-                    env->ReleaseStringUTFChars(jDisplayName, cstr);
-                    env->DeleteLocalRef(jDisplayName);
-                }
-            }
-            // Close cursor
-            jmethodID closeCursor = env->GetMethodID(cursorClass, "close", "()V");
-            env->CallVoidMethod(jCursor, closeCursor);
-            env->DeleteLocalRef(cursorClass);
-        }
-        env->DeleteLocalRef(projArray);
-        env->DeleteLocalRef(stringClass);
-    }
-
-    // Fallback if displayName is empty
-    if (displayName.isEmpty()) {
-        displayName = QString::number(QDateTime::currentMSecsSinceEpoch());
-    }
-
-    // Create temp file path with original filename
-    QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-        + "/" + displayName;
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::WriteOnly)) return QString();
-
-    // Read InputStream and write to temp file
-    QJniEnvironment env;
-    QJniObject inputStream = contentResolver.callObjectMethod(
-        "openInputStream",
-        "(Landroid/net/Uri;)Ljava/io/InputStream;",
-        uriObj.object<jobject>()
-    );
-    if (!inputStream.isValid()) return QString();
-
-    jbyteArray buffer = env->NewByteArray(4096);
-    jint bytesRead = 0;
-    jclass inputStreamClass = env->GetObjectClass(inputStream.object<jobject>());
-    jmethodID readMethod = env->GetMethodID(inputStreamClass, "read", "([B)I");
-
-    while (true) {
-        bytesRead = env->CallIntMethod(inputStream.object<jobject>(), readMethod, buffer);
-        if (bytesRead <= 0) break;
-        jbyte* bufPtr = env->GetByteArrayElements(buffer, nullptr);
-        tempFile.write(reinterpret_cast<const char*>(bufPtr), bytesRead);
-        env->ReleaseByteArrayElements(buffer, bufPtr, JNI_ABORT);
-    }
-    tempFile.close();
-
-    // Close InputStream
-    jmethodID closeMethod = env->GetMethodID(inputStreamClass, "close", "()V");
-    env->CallVoidMethod(inputStream.object<jobject>(), closeMethod);
-
-    env->DeleteLocalRef(buffer);
-    env->DeleteLocalRef(inputStreamClass);
-
-    return tempPath;
-}
-#endif
 
 void GuiBehind::sendClipboardText()
 {
@@ -771,259 +567,114 @@ void GuiBehind::sendText()
 
 void GuiBehind::sendScreen()
 {
-#if defined(Q_OS_WIN)
-    // Minimize window if possible (QWidget-based main window)
-    QWidgetList topLevels = QApplication::topLevelWidgets();
-    for (int i = 0; i < topLevels.size(); ++i) {
-        QWidget *w = topLevels.at(i);
-        if (w->isWindow() && w->isVisible()) {
-            w->setWindowState(Qt::WindowMinimized);
-            break;
-        }
-    }
-#endif
-    QTimer::singleShot(500, this, SLOT(sendScreenStage2()));
+    sendScreenStage2();
 }
 
 void GuiBehind::sendScreenStage2()
 {
-#if defined(Q_OS_WIN)
-    // Hide all top-level windows
-    QWidgetList topLevels = QApplication::topLevelWidgets();
-    QList<QWidget *> hiddenWindows;
-    for (int i = 0; i < topLevels.size(); ++i)
-    {
-        QWidget *w = topLevels.at(i);
-        if (w->isWindow() && w->isVisible())
-        {
-            w->hide();
-            hiddenWindows.append(w);
+    if (mCapturingScreen) return;
+    TransferRequest request;
+    if (!captureRecipient(request)) return;
+    mCapturingScreen = true;
+    QList<QPointer<QWindow>> hidden;
+    for (QWindow *window : QGuiApplication::allWindows()) {
+        if (window->isVisible()) { hidden.append(window); window->hide(); }
+    }
+    QTimer::singleShot(300, this, [this, hidden, request]() mutable {
+        auto *screen = QGuiApplication::primaryScreen();
+        const QPixmap capture = screen ? screen->grabWindow(0) : QPixmap();
+        for (const auto &window : hidden) if (window) window->show();
+        mCapturingScreen = false;
+        request.temporary = std::make_shared<QTemporaryDir>();
+        const QString path = request.temporary->filePath("Screenshot.png");
+        if (!request.temporary->isValid() || capture.isNull() || !capture.save(path, "PNG")) {
+            showError(tr("Could not capture the desktop on this system."));
+            return;
         }
-    }
-
-    // Process events and give the OS time to repaint the desktop
-    QGuiApplication::processEvents();
-    QThread::msleep(300); // <-- This is critical!
-
-    // Take screenshot after delay
-    QScreen *screen = QGuiApplication::primaryScreen();
-    QPixmap pixmap = screen->grabWindow(0);
-
-    // Restore all previously hidden windows
-    for (int i = 0; i < hiddenWindows.size(); ++i)
-    {
-        hiddenWindows.at(i)->show();
-    }
-    QGuiApplication::processEvents();
-
-    // Save the screenshot
-    QTemporaryFile tempFile;
-    tempFile.setAutoRemove(false);
-    tempFile.open();
-    mScreenTempPath = tempFile.fileName();
-    tempFile.close();
-    pixmap.save(mScreenTempPath, "PNG", 0);
-
-    // Send
-    QString ip;
-    qint16 port;
-    if (!prepareStartTransfer(&ip, &port))
-        return;
-    mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
-#else
-    // Same logic applies for non-Windows platforms
-    const auto windows = QGuiApplication::allWindows();
-    QList<QWindow *> hiddenWindows;
-    for (QWindow *w : windows)
-    {
-        if (w->isVisible())
-        {
-            w->hide();
-            hiddenWindows.append(w);
-        }
-    }
-
-    QGuiApplication::processEvents();
-    QThread::msleep(300); // Let the OS update the screen
-
-    QPixmap pixmap = QGuiApplication::primaryScreen()->grabWindow(0);
-
-    for (QWindow *w : hiddenWindows)
-    {
-        w->show();
-    }
-    QGuiApplication::processEvents();
-
-    QTemporaryFile tempFile;
-    tempFile.setAutoRemove(false);
-    tempFile.open();
-    mScreenTempPath = tempFile.fileName();
-    tempFile.close();
-    pixmap.save(mScreenTempPath, "PNG", 0);
-
-    QString ip;
-    qint16 port;
-    if (!prepareStartTransfer(&ip, &port))
-        return;
-    mDuktoProtocol.sendScreen(ip, port, mScreenTempPath);
-#endif
+        request.sources = {path};
+        submit(std::move(request));
+    });
 }
 
 void GuiBehind::startTransfer(QStringList files)
 {
-    PendingTransfer pending;
-    pending.isText = false;
-    pending.files = files;
-    pending.retriesRemaining = MAX_QUEUE_RETRIES;
-
-    if (mDuktoProtocol.isBusy()) {
-        queueTransfer(pending);
-        return;
-    }
-    executeTransfer(pending);
+    if (files.isEmpty()) return;
+    TransferRequest request;
+    request.sources = files;
+    if (captureRecipient(request)) submit(std::move(request));
 }
 
 void GuiBehind::startTransfer(QString text)
 {
-    PendingTransfer pending;
-    pending.isText = true;
-    pending.text = text;
-    pending.retriesRemaining = MAX_QUEUE_RETRIES;
-
-    if (mDuktoProtocol.isBusy()) {
-        queueTransfer(pending);
-        return;
-    }
-    executeTransfer(pending);
+    if (text.isEmpty()) return;
+    TransferRequest request;
+    request.isText = true;
+    request.text = text;
+    if (captureRecipient(request)) submit(std::move(request));
 }
 
-void GuiBehind::executeTransfer(const PendingTransfer &transfer)
+bool GuiBehind::captureRecipient(TransferRequest &request)
 {
-    mActiveTransfer = transfer;
-    mHasActiveTransfer = true;
-
-    // Prepare file transfer
-    QString ip;
-    qint16 port;
-    if (!prepareStartTransfer(&ip, &port)) {
-        mHasActiveTransfer = false;
-        return;
-    }
-
-    if (transfer.isText)
-        mDuktoProtocol.sendText(ip, port, transfer.text);
-    else
-        mDuktoProtocol.sendFile(ip, port, transfer.files);
-}
-
-void GuiBehind::queueTransfer(const PendingTransfer &transfer)
-{
-    mPendingTransfers.enqueue(transfer);
-    setMessagePageTitle(tr("Queue"));
-    setMessagePageText(tr("Transfer queued. It will start automatically when current transfer finishes.\n\nQueued items: ") + QString::number(mPendingTransfers.size()));
-    setMessagePageBackState("send");
-    emit gotoMessagePage();
-}
-
-void GuiBehind::queueRetry(const PendingTransfer &transfer)
-{
-    PendingTransfer retried = transfer;
-    retried.retriesRemaining -= 1;
-    if (retried.retriesRemaining < 0)
-        return;
-    mPendingTransfers.prepend(retried);
-    mHasActiveTransfer = false;
-}
-
-void GuiBehind::processQueuedTransfer()
-{
-    if (mPendingTransfers.isEmpty() || mDuktoProtocol.isBusy())
-        return;
-
-    const PendingTransfer next = mPendingTransfers.dequeue();
-    executeTransfer(next);
-}
-
-bool GuiBehind::prepareStartTransfer(QString *ip, qint16 *port)
-{
-    // Check if it's a remote file transfer
     if (mDestBuddy->ip() == "IP") {
-
-        // Remote transfer
-        QString dest = remoteDestinationAddress();
-
-        // Check if port is specified
-        if (dest.contains(":")) {
-
-            // Port is specified or destination is malformed...
-            static const QRegularExpression rx("^(.*):([0-9]+)$");
-            QRegularExpressionMatch match = rx.match(dest);
-            if (!match.hasMatch()) {
-
-                // Malformed destination
-                setMessagePageTitle(tr("Send"));
-                setMessagePageText(tr("Hey, take a look at your destination, it appears to be malformed!"));
-                setMessagePageBackState("send");
-                emit gotoMessagePage();
-                return false;
-            }
-
-            // Get IP (or hostname) and port
-            *ip = match.captured(1);
-            *port = match.captured(2).toInt();
+        const QString address = remoteDestinationAddress().trimmed();
+        const QUrl url("tcp://" + address);
+        if (address.isEmpty() || !url.isValid() || url.host().isEmpty() || !url.userInfo().isEmpty()
+            || !url.path().isEmpty() || url.hasQuery() || url.hasFragment()
+            || url.port(4644) < 1 || url.port(4644) > 65535) {
+            showError(tr("Enter a valid hostname or IP address, optionally followed by :port."));
+            return false;
         }
-        else {
-
-            // Port not specified, using default
-            *ip = dest;
-            *port = 0;
-        }
-        setCurrentTransferBuddy(*ip);
+        request.host = url.host();
+        request.port = quint16(url.port(4644));
+        request.recipient = address;
+    } else {
+        if (mDestBuddy->ip().isEmpty()) return false;
+        request.host = mDestBuddy->ip();
+        request.port = mDestBuddy->port() ? quint16(mDestBuddy->port()) : NETWORK_PORT;
+        request.recipient = mDestBuddy->username();
     }
-    else {
+    return true;
+}
 
-        // Local transfer
-        *ip = mDestBuddy->ip();
-        *port = mDestBuddy->port();
-        setCurrentTransferBuddy(mDestBuddy->username());
+void GuiBehind::submit(TransferRequest request)
+{
+    const bool queued = mTransfers.hasWork() || mDuktoProtocol->isBusy();
+    mTransfers.enqueue(std::move(request));
+    if (queued) {
+        setMessagePageTitle(tr("Queue"));
+        setMessagePageText(tr("Transfer queued. It will start automatically when the current transfer finishes.\n\nQueued items: %1").arg(mTransfers.queuedCount()));
+        setMessagePageBackState("send");
+        emit gotoMessagePage();
     }
+}
 
-    // Update GUI for file transfer
+void GuiBehind::startJob(TransferRequest request)
+{
+    mActiveJobId = request.id;
+    mActiveCancellation = request.cancellation;
+    mLastTransferError.clear();
+    setCurrentTransferBuddy(request.recipient);
     setCurrentTransferSending(true);
+    setCurrentTransferStats(tr("Connecting..."));
+    setCurrentTransferProgress(0);
 #if defined(Q_OS_ANDROID)
     setAndroidTransferActive(true);
 #endif
-    setCurrentTransferStats(tr("Connecting..."));
-    setCurrentTransferProgress(0);
-    // mView->win7()->setProgressState(EcWin7::Normal);
-    // mView->win7()->setProgressValue(0, 100);
-
+    QMetaObject::invokeMethod(mDuktoProtocol, [this, request] { mDuktoProtocol->sendRequest(request); });
     emit transferStart();
-    return true;
 }
 
 void GuiBehind::sendFileComplete()
 {
+    mActiveJobId.clear();
+    mActiveCancellation.reset();
     // Show completed message
     setMessagePageTitle(tr("Send"));
     setMessagePageText(tr("Your data has been sent to your buddy!\n\nDo you want to send other files to your buddy? Just drag and drop them here!"));
     setMessagePageBackState("send");
     // Other platforms can be re-added here if needed
 
-    // Check for temporary file to delete
-    if (mScreenTempPath != "") {
-        QFile file(mScreenTempPath);
-        file.remove();
-        mScreenTempPath = "";
-    }
 
-#if defined(Q_OS_ANDROID)
-    // Clean up temp files after sending
-    for (const QString &tempPath : mTempFilesForTransfer) {
-        QFile::remove(tempPath);
-    }
-    mTempFilesForTransfer.clear();
-#endif
 #if defined(Q_OS_WIN)
     HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
     WinHelper::WinTaskbarProgressHelper::setSuccess(hwnd);
@@ -1038,32 +689,20 @@ void GuiBehind::sendFileComplete()
         WinHelper::WinTaskbarProgressHelper::clearProgress();
     }
 #endif
-    mHasActiveTransfer = false;
-    processQueuedTransfer();
+    mTransfers.finish();
+#if defined(Q_OS_ANDROID)
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
+#endif
     emit gotoMessagePage();
 }
 
 void GuiBehind::sendFileError(int code)
 {
+    mActiveJobId.clear();
+    mActiveCancellation.reset();
     setMessagePageTitle(tr("Error"));
-    setMessagePageText(tr("Sorry, an error has occurred while sending your data...\n\nError code: ") + QString::number(code));
+    setMessagePageText(mLastTransferError.isEmpty() ? tr("An error occurred while sending your data. Error code: %1").arg(code) : mLastTransferError);
     setMessagePageBackState("send");
-#if defined(Q_OS_ANDROID)
-    setAndroidTransferActive(false);
-#endif
-#if defined(Q_OS_ANDROID)
-    // Clean up temp files on error
-    for (const QString &tempPath : mTempFilesForTransfer) {
-        QFile::remove(tempPath);
-    }
-    mTempFilesForTransfer.clear();
-#endif
-    // Check for temporary file to delete
-    if (mScreenTempPath != "") {
-        QFile file(mScreenTempPath);
-        file.remove();
-        mScreenTempPath = "";
-    }
 #if defined(Q_OS_WIN)
     HWND hwnd = WinHelper::WinTaskbarProgressHelper::getMainWindowHandle();
     WinHelper::WinTaskbarProgressHelper::setError(hwnd);
@@ -1088,13 +727,12 @@ void GuiBehind::sendFileError(int code)
         });
     }
 #endif
-    if (mHasActiveTransfer && mActiveTransfer.retriesRemaining > 0) {
-        queueRetry(mActiveTransfer);
-        setMessagePageText(messagePageText() + tr("\n\nThis transfer was re-queued for retry."));
-    } else {
-        mHasActiveTransfer = false;
-    }
-    processQueuedTransfer();
+    const bool retry = mTransfers.canRetry();
+    mTransfers.finish(true);
+#if defined(Q_OS_ANDROID)
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
+#endif
+    if (retry) setMessagePageText(messagePageText() + tr("\n\nThis transfer was re-queued for retry."));
     emit gotoMessagePage();
 }
 
@@ -1108,7 +746,10 @@ void GuiBehind::resetProgressStatus()
 // Periodic hello sending
 void GuiBehind::periodicHello()
 {
-    mDuktoProtocol.sayHello(QHostAddress::Broadcast);
+#if defined(Q_OS_ANDROID)
+    if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
+#endif
+    QMetaObject::invokeMethod(mDuktoProtocol, [this] { mDuktoProtocol->sayHello(QHostAddress::Broadcast); });
 }
 
 // Show updates message
@@ -1120,7 +761,11 @@ void GuiBehind::showUpdatesMessage()
 // Abort current transfer while sending data
 void GuiBehind::abortTransfer()
 {
-    mDuktoProtocol.abortCurrentTransfer();
+    if (!mTransfers.hasActive() && !mDuktoProtocol->isBusy()) return;
+    const QString id = mActiveJobId;
+    if (mActiveCancellation && !id.isEmpty()) mActiveCancellation->store(true);
+    else mDuktoProtocol->requestCancel();
+    QMetaObject::invokeMethod(mDuktoProtocol, [this, id] { mDuktoProtocol->abortRequest(id); });
 }
 
 void GuiBehind::acceptIncomingTransfer()
@@ -1129,7 +774,7 @@ void GuiBehind::acceptIncomingTransfer()
         return;
     mPendingIncomingSender.clear();
     emit pendingIncomingSenderChanged();
-    mDuktoProtocol.acceptIncomingTransfer();
+    QMetaObject::invokeMethod(mDuktoProtocol, &DuktoProtocol::acceptIncomingTransfer);
 }
 
 void GuiBehind::rejectIncomingTransfer()
@@ -1138,26 +783,20 @@ void GuiBehind::rejectIncomingTransfer()
         return;
     mPendingIncomingSender.clear();
     emit pendingIncomingSenderChanged();
-    mDuktoProtocol.rejectIncomingTransfer();
-    setOverlayState("");
+    QMetaObject::invokeMethod(mDuktoProtocol, &DuktoProtocol::rejectIncomingTransfer);
+    emit hideAllOverlays();
 }
 
 // Protocol confirms that abort has been done
 void GuiBehind::sendFileAborted()
 {
+    mActiveJobId.clear();
+    mActiveCancellation.reset();
     resetProgressStatus();
+    mTransfers.finish();
 #if defined(Q_OS_ANDROID)
-    setAndroidTransferActive(false);
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
 #endif
-#if defined(Q_OS_ANDROID)
-    // Clean up temp files on abort
-    for (const QString &tempPath : mTempFilesForTransfer) {
-        QFile::remove(tempPath);
-    }
-    mTempFilesForTransfer.clear();
-#endif
-    mHasActiveTransfer = false;
-    processQueuedTransfer();
     emit gotoSendPage();
 }
 
@@ -1249,6 +888,7 @@ void GuiBehind::setCurrentPath(QString path)
 {
     if (path == mSettings.currentPath()) return;
     mSettings.savePath(path);
+    QMetaObject::invokeMethod(mDuktoProtocol, [this, path] { mDuktoProtocol->setReceivePath(path); });
     emit currentPathChanged();
 }
 
@@ -1371,7 +1011,7 @@ void GuiBehind::setBuddyName(QString name)
 {
     qDebug() << "Buddy name is:  " << name;
     mSettings.saveBuddyName(name.replace(' ', ""));
-    mDuktoProtocol.updateBuddyName();
+    QMetaObject::invokeMethod(mDuktoProtocol, &DuktoProtocol::updateBuddyName);
     mBuddiesList.updateMeElement();
     emit buddyNameChanged();
 }
@@ -1501,7 +1141,7 @@ bool GuiBehind::canAcceptDrop()
 
 void GuiBehind::close()
 {
-    mDuktoProtocol.sayGoodbye();
+    QMetaObject::invokeMethod(mDuktoProtocol, [this] { mDuktoProtocol->sayGoodbye(); });
 }
 
 void GuiBehind::changeThemeColor(QString color)
@@ -1510,8 +1150,19 @@ void GuiBehind::changeThemeColor(QString color)
     mSettings.saveThemeColor(color);
 }
 
+void GuiBehind::setThemeMode(const QString &mode)
+{
+    if (mTheme.mode() == mode) return;
+    mTheme.setMode(mode);
+    if (mTheme.mode() != mode) return;
+    mSettings.saveThemeMode(mode);
+    emit themeModeChanged();
+}
+
 void GuiBehind::receiveFileCancelled()
 {
+    mTransfers.setReceiving(false);
+    dismissIncomingTransfer();
     // You can add error handling or user notification here if needed.
     // For now, just reset the progress status.
 #if defined(Q_OS_WIN)
@@ -1527,6 +1178,139 @@ void GuiBehind::receiveFileCancelled()
     resetProgressStatus();
 #endif
 #if defined(Q_OS_ANDROID)
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
+#endif
+    showError(mLastTransferError.isEmpty() ? tr("The incoming transfer was interrupted.") : mLastTransferError);
+    setMessagePageBackState("");
+}
+
+GuiBehind::~GuiBehind()
+{
+    shutdown();
+}
+
+void GuiBehind::shutdown()
+{
+    if (mShuttingDown) return;
+    mShuttingDown = true;
+    mTransfers.setPaused(true);
+    if (mDuktoProtocol && mProtocolThread.isRunning()) {
+        mDuktoProtocol->requestCancel();
+        QMetaObject::invokeMethod(mDuktoProtocol, [this] {
+            mDuktoProtocol->abortCurrentTransfer();
+            mDuktoProtocol->sayGoodbye();
+        }, Qt::BlockingQueuedConnection);
+        mProtocolThread.quit();
+        mProtocolThread.wait();
+    }
+    mTransfers.clear();
+#if defined(Q_OS_ANDROID)
     setAndroidTransferActive(false);
+#endif
+}
+
+void GuiBehind::readyForShares()
+{
+    mAndroidShares.ready();
+}
+
+void GuiBehind::stageShare(QStringList sources, QString text)
+{
+    TransferRequest share;
+    share.sources = sources;
+    share.isText = sources.isEmpty();
+    share.text = sources.isEmpty() ? text : QString();
+    if (share.sources.isEmpty() && share.text.isEmpty()) return;
+    mPendingShares.enqueue(std::move(share));
+    emit pendingShareChanged();
+    if (!mTransfers.hasActive() && !mDuktoProtocol->isBusy()) {
+        setMessagePageTitle(tr("Shared content"));
+        setMessagePageText(tr("Your shared content is ready. Go back and choose a buddy to send it to. For an IP connection, enter the address and choose Send shared content."));
+        setMessagePageBackState("");
+        emit gotoMessagePage();
+    }
+}
+
+void GuiBehind::sendPendingShare()
+{
+    if (mPendingShares.isEmpty()) return;
+    TransferRequest request = mPendingShares.head();
+    if (!captureRecipient(request)) return;
+    mPendingShares.dequeue();
+    emit pendingShareChanged();
+    submit(std::move(request));
+}
+
+void GuiBehind::dismissIncomingTransfer()
+{
+    mPendingIncomingSender.clear();
+    emit pendingIncomingSenderChanged();
+    if (overlayState() == "confirmreceive") emit hideAllOverlays();
+    mTransfers.setReceiving(false);
+#if defined(Q_OS_ANDROID)
+    if (!mTransfers.hasWork()) setAndroidTransferActive(false);
+#endif
+}
+
+void GuiBehind::showError(const QString &message)
+{
+    setMessagePageTitle(tr("Error"));
+    setMessagePageText(message);
+    setMessagePageBackState("send");
+    emit gotoMessagePage();
+}
+
+QString GuiBehind::androidStorageDescription() const
+{
+#ifdef Q_OS_ANDROID
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    return QJniObject::callStaticObjectMethod("idv/coolshou/DuktoStorage", "description",
+        "(Landroid/content/Context;)Ljava/lang/String;", context.object<jobject>()).toString();
+#else
+    return {};
+#endif
+}
+
+bool GuiBehind::androidCustomStorage() const
+{
+    return !ReceivedFile::selectedTree().isEmpty();
+}
+
+bool GuiBehind::androidAutomaticStorageAvailable() const
+{
+#ifdef Q_OS_ANDROID
+    return QNativeInterface::QAndroidApplication::sdkVersion() >= 29;
+#else
+    return false;
+#endif
+}
+
+void GuiBehind::chooseAndroidStorage()
+{
+#ifdef Q_OS_ANDROID
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoActivity", "chooseReceiveFolder",
+        "(Landroid/content/Context;)V", context.object<jobject>());
+#endif
+}
+
+void GuiBehind::useAutomaticAndroidStorage()
+{
+#ifdef Q_OS_ANDROID
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    const auto empty = QJniObject::fromString("");
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoStorage", "selectTree",
+        "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+        context.object<jobject>(), empty.object<jstring>(), empty.object<jstring>());
+    emit androidStorageChanged();
+#endif
+}
+
+void GuiBehind::openBatterySettings()
+{
+#ifdef Q_OS_ANDROID
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>("idv/coolshou/DuktoBridge", "openBatterySettings",
+        "(Landroid/content/Context;)V", context.object<jobject>());
 #endif
 }
