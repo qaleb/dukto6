@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(dukto VERSION 6.9.9 LANGUAGES CXX)
+project(dukto VERSION 6.9.10 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -43,6 +43,17 @@ if(DUKTO_BUILD_TESTS AND NOT ANDROID)
     target_include_directories(theme_tests PRIVATE src)
     target_link_libraries(theme_tests PRIVATE Qt6::Test Qt6::Gui)
     add_test(NAME theme COMMAND theme_tests)
+    qt_add_executable(desktopshare_tests tests/desktopshare_tests.cpp src/desktopsharebridge.cpp src/desktopsharebridge.h)
+    target_include_directories(desktopshare_tests PRIVATE src)
+    target_link_libraries(desktopshare_tests PRIVATE Qt6::Test Qt6::Network)
+    add_test(NAME desktop_share COMMAND desktopshare_tests)
+    qt_add_executable(desktopintegration_tests tests/desktopintegration_tests.cpp src/desktopintegration.cpp src/desktopintegration.h)
+    target_include_directories(desktopintegration_tests PRIVATE src)
+    target_link_libraries(desktopintegration_tests PRIVATE Qt6::Test)
+    if(WIN32)
+        target_link_libraries(desktopintegration_tests PRIVATE ole32 uuid shell32)
+    endif()
+    add_test(NAME file_manager_actions COMMAND desktopintegration_tests)
     set_tests_properties(theme PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     find_package(Java QUIET COMPONENTS Runtime Development)
     if(Java_FOUND)
@@ -80,6 +91,8 @@ set(SOURCES
     src/receivedfile.cpp
     src/transferqueue.cpp
     src/androidsharebridge.cpp
+    src/desktopsharebridge.cpp
+    src/desktopintegration.cpp
     src/guibehind.cpp
     src/ipaddressitemmodel.cpp
     src/main.cpp
@@ -100,6 +113,8 @@ set(HEADERS
     src/transferrequest.h
     src/transferqueue.h
     src/androidsharebridge.h
+    src/desktopsharebridge.h
+    src/desktopintegration.h
     src/guibehind.h
     src/ipaddressitemmodel.h
     src/miniwebserver.h
@@ -135,7 +150,7 @@ if(DUKTO_BUILD_TESTS AND NOT ANDROID)
     target_include_directories(coordinator_tests PRIVATE src)
     target_link_libraries(coordinator_tests PRIVATE Qt6::Test Qt6::Quick Qt6::Qml Qt6::Widgets Qt6::Network)
     if(WIN32)
-        target_link_libraries(coordinator_tests PRIVATE ole32 uuid user32)
+        target_link_libraries(coordinator_tests PRIVATE ole32 uuid user32 shell32)
     endif()
     add_test(NAME coordinator COMMAND coordinator_tests)
     set_tests_properties(coordinator PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -208,7 +223,7 @@ if(NOT ANDROID)
 endif()
 if(WIN32)
     # COM taskbar progress and window notifications in winhelper.h.
-    target_link_libraries(dukto6 PRIVATE ole32 uuid user32)
+    target_link_libraries(dukto6 PRIVATE ole32 uuid user32 shell32)
 endif()
 
 # Assets (fonts, icons, etc.)

@@ -63,6 +63,10 @@ ApplicationWindow {
         guiBehind.onGotoSendPage.connect(() => handleOverlayState("send"));
         guiBehind.onGotoMessagePage.connect(() => handleOverlayState("message"));
         guiBehind.onGotoConfirmReceivePage.connect(() => handleOverlayState("confirmreceive"));
+        guiBehind.onGotoShareRecipient.connect(() => {
+            handleOverlayState("");
+            duktoInner.handleTabClick("buddies");
+        });
         guiBehind.onHideAllOverlays.connect(() => handleOverlayState(""));
     }
 

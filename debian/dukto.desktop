@@ -1,6 +1,10 @@
 [Desktop Entry]
 Name=Dukto
-Exec=dukto6
+Comment=Send files and text to another device on your LAN
+Exec=dukto6 --share -- %U
 Icon=dukto
 Type=Application
 Categories=Utility;Network;
+MimeType=application/octet-stream;inode/directory;
+StartupWMClass=dukto6
+Terminal=false

@@ -46,6 +46,55 @@ private slots:
 
     void cleanupTestCase() { QDir::setCurrent(mOriginalPath); }
 
+    void fileManagerShareShowsRecipientAndCanBeCancelled()
+    {
+        QQmlApplicationEngine engine;
+        auto *backend = create(engine);
+        backend->setShowTermsOnStart(false);
+        engine.load(QUrl::fromLocalFile(QFINDTESTDATA("../src/qml/dukto6/Main.qml")));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *root = engine.rootObjects().first();
+        QVERIFY(QMetaObject::invokeMethod(root, "handleOverlayState", Q_ARG(QVariant, QVariant("settings"))));
+        backend->stageShare({"/tmp/first selected.txt", "/tmp/second.png"}, {});
+        QTRY_COMPARE(backend->overlayState(), QString());
+        auto *panel = root->findChild<QQuickItem *>("pendingSharePanel");
+        QTRY_VERIFY(panel && panel->isVisible());
+        QCOMPARE(backend->pendingShareCount(), 1);
+        QVERIFY(backend->pendingShareSummary().contains("first selected.txt"));
+        QVERIFY(!backend->mTransfers.hasWork());
+        backend->stageShare({"/tmp/third.txt"}, {});
+        QCOMPARE(backend->pendingShareCount(), 2);
+        auto *cancel = root->findChild<QObject *>("cancelSharedSelection");
+        QVERIFY(cancel); QVERIFY(QMetaObject::invokeMethod(cancel, "clicked"));
+        QCOMPARE(backend->pendingShareCount(), 1);
+        QVERIFY(backend->pendingShareSummary().contains("third.txt"));
+        backend->discardPendingShare();
+        QTRY_VERIFY(!panel->isVisible());
+        QVERIFY(!backend->mTransfers.hasWork());
+    }
+
+    void stagedSharesAreBoundedAndDoNotReplaceActiveProgressOrTerms()
+    {
+        QQmlApplicationEngine engine;
+        auto *backend = create(engine);
+        backend->setShowTermsOnStart(false);
+        QSignalSpy choose(backend, &GuiBehind::gotoShareRecipient);
+        backend->mTransfers.setPaused(true);
+        backend->mTransfers.enqueue(TransferRequest());
+        backend->setOverlayState("progress");
+        backend->stageShare({"/tmp/waiting"}, {});
+        QCOMPARE(choose.count(), 0); QCOMPARE(backend->overlayState(), QString("progress"));
+        backend->mTransfers.clear();
+        backend->setShowTermsOnStart(true);
+        backend->stageShare({}, "Wait for terms");
+        QCOMPARE(choose.count(), 0);
+        backend->setShowTermsOnStart(false);
+        while (backend->pendingShareCount() < 20) backend->stageShare({"/tmp/item"}, {});
+        backend->stageShare({"/tmp/too-many"}, {});
+        QCOMPARE(backend->pendingShareCount(), 20);
+        QVERIFY(backend->messagePageText().contains("Too many"));
+    }
+
     void settingsControlsFollowThemeAndAlignment()
     {
         QQmlApplicationEngine engine;

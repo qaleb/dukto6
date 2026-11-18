@@ -199,3 +199,51 @@ python3 tests/android_text_receive_smoke.py --serial emulator-PORT --output /tmp
 
 The regression sends short, empty, Unicode and large text and waits beyond the
 service-start deadline, checking process survival and idle-service cleanup.
+
+# Send from another app (6.9.10)
+- **Android:** select files or text in another app, choose **Share → Dukto**, then
+  choose the receiving device. Multiple files and temporary content-URI grants
+  are supported. The existing Dukto activity is reused. Android uses the standard
+  [Sharesheet contracts](https://developer.android.com/training/sharing/receive),
+  so Dukto is a transfer target rather than a default file viewer.
+- **Ubuntu/GNOME Files:** select files or folders, right-click, and choose
+  **Scripts → Send with Dukto**. The script is installed for the current user on
+  first launch. Other file managers can use **Open with Dukto** when they support
+  the application's MIME registration; no default file associations are changed.
+- **KDE Dolphin:** **Send with Dukto** is installed as a per-user service menu.
+- **Windows Explorer:** select files or folders and choose **Send to → Dukto**.
+  The per-user SendTo shortcut is installed on first launch. This uses Windows'
+  [SendTo folder](https://learn.microsoft.com/windows/win32/shell/knownfolderid),
+  without changing default file associations or requiring administrator access.
+
+The selection appears above the device list with a summary and Cancel action.
+Nothing is transmitted until a recipient is chosen. If a transfer is active,
+new selections wait without replacing its progress display. Pending shares are
+bounded to 20 selections and 32 MiB of UTF-16 metadata. Android provider
+files are opened one at a time when sending, rather than retaining a descriptor
+for every known-size file in a large selection.
+
+Desktop launches hand their absolute file paths to the existing per-user Dukto
+process over a user-restricted local socket. Relative paths are captured before
+Dukto changes to the receive directory. Framed messages have size, count and
+connection deadlines, and a lifetime lock serializes concurrent starts and
+stale-socket recovery. A file-manager launch never silently starts a second
+receiver on the same port.
+
+Command-line equivalents:
+
+```sh
+dukto6 --share -- /path/to/file /path/to/folder
+dukto6 --install-file-actions   # repair actions for this user
+dukto6 --remove-file-actions    # remove them and disable automatic installation
+```
+
+Renaming or relocating a portable build updates its generated actions on the
+next launch. Existing custom scripts/shortcuts are preserved. Desktop regression
+tests cover quoting through a real freedesktop launcher, cold-start races,
+fragmented IPC, process-crash recovery, recipient staging and cancellation.
+`tests/android_share_smoke.py` and the `ShareChecks` instrumentation helper test
+actual cross-app URI grants and file bytes while monitoring descriptor growth.
+Windows native shell behavior still requires a Windows runtime test. Dukto's
+legacy network protocol still has no receiver acknowledgement or interrupted-
+transfer resume; this integration does not change that wire format.

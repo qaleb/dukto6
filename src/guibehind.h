@@ -34,6 +34,8 @@ class GuiBehind : public QObject
     Q_OBJECT
 
     Q_PROPERTY(bool hasPendingShare READ hasPendingShare NOTIFY pendingShareChanged)
+    Q_PROPERTY(QString pendingShareSummary READ pendingShareSummary NOTIFY pendingShareChanged)
+    Q_PROPERTY(int pendingShareCount READ pendingShareCount NOTIFY pendingShareChanged)
     Q_PROPERTY(QString androidStorageDescription READ androidStorageDescription NOTIFY androidStorageChanged)
     Q_PROPERTY(bool androidCustomStorage READ androidCustomStorage NOTIFY androidStorageChanged)
     Q_PROPERTY(bool androidAutomaticStorageAvailable READ androidAutomaticStorageAvailable CONSTANT)
@@ -73,6 +75,8 @@ public:
 
     ~GuiBehind() override;
     bool hasPendingShare() const { return !mPendingShares.isEmpty(); }
+    QString pendingShareSummary() const;
+    int pendingShareCount() const { return mPendingShares.size(); }
     QString androidStorageDescription() const;
     bool androidCustomStorage() const;
     bool androidAutomaticStorageAvailable() const;
@@ -162,6 +166,7 @@ signals:
     void gotoSendPage();
     void gotoMessagePage();
     void gotoConfirmReceivePage();
+    void gotoShareRecipient();
     void hideAllOverlays();
 
 public slots:
@@ -192,6 +197,7 @@ public slots:
     void close();
     void readyForShares();
     void stageShare(QStringList sources, QString text);
+    void discardPendingShare();
     void sendPendingShare();
     void chooseAndroidStorage();
     void useAutomaticAndroidStorage();

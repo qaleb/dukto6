@@ -21,6 +21,11 @@ public class DuktoBridge {
         return thread;
     });
     static {
+        // Large selections should not retain cancelled provider timeout tasks
+        // (and their cancellation signals) until the 30-second deadline.
+        watchdog.setRemoveOnCancelPolicy(true);
+    }
+    static {
         watchdog.setKeepAliveTime(30, TimeUnit.SECONDS);
         watchdog.allowCoreThreadTimeOut(true);
         watchdog.setRemoveOnCancelPolicy(true);

@@ -9,7 +9,7 @@ set -o pipefail
 
 # === CONFIGURATION ===
 APP_NAME="dukto6"
-VERSION="6.9.9"
+VERSION="6.9.10"
 PKG_DIR="${APP_NAME}_${VERSION}"
 DIST_DIR="DistributionKit"
 DIST_DIR_ABS="${PWD}/${DIST_DIR}"
@@ -98,13 +98,13 @@ cat <<EOF > "$PKG_DIR/usr/share/applications/dukto.desktop"
 [Desktop Entry]
 Name=Dukto
 Comment=Easy LAN File Transfer Tool
-Exec=/usr/local/dukto/dukto.sh
+Exec=/usr/local/dukto/dukto.sh --share -- %U
 Icon=dukto
 Terminal=false
 Type=Application
 Categories=Utility;Network;
 StartupWMClass=dukto6
-MimeType=application/octet-stream;
+MimeType=application/octet-stream;inode/directory;
 EOF
 
 # --- Build package ---

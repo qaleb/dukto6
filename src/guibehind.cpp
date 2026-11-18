@@ -1216,6 +1216,16 @@ void GuiBehind::readyForShares()
 
 void GuiBehind::stageShare(QStringList sources, QString text)
 {
+    qint64 retained = text.size();
+    for (const auto &source : sources) retained += source.size();
+    for (const auto &pending : mPendingShares) {
+        retained += pending.text.size();
+        for (const auto &source : pending.sources) retained += source.size();
+    }
+    if (mPendingShares.size() >= 20 || sources.size() > 10000 || retained > 16 * 1024 * 1024) {
+        showError(tr("Too many shared items are waiting. Send or cancel a pending selection first."));
+        return;
+    }
     TransferRequest share;
     share.sources = sources;
     share.isText = sources.isEmpty();
@@ -1223,12 +1233,30 @@ void GuiBehind::stageShare(QStringList sources, QString text)
     if (share.sources.isEmpty() && share.text.isEmpty()) return;
     mPendingShares.enqueue(std::move(share));
     emit pendingShareChanged();
-    if (!mTransfers.hasActive() && !mDuktoProtocol->isBusy()) {
-        setMessagePageTitle(tr("Shared content"));
-        setMessagePageText(tr("Your shared content is ready. Go back and choose a buddy to send it to. For an IP connection, enter the address and choose Send shared content."));
-        setMessagePageBackState("");
-        emit gotoMessagePage();
+    if (!mTransfers.hasWork() && !mDuktoProtocol->isBusy() && !showTermsOnStart()) emit gotoShareRecipient();
+}
+
+QString GuiBehind::pendingShareSummary() const
+{
+    if (mPendingShares.isEmpty()) return {};
+    const auto &share = mPendingShares.head();
+    if (share.isText) return tr("Text · %1 characters").arg(share.text.size());
+    QStringList names;
+    for (const auto &source : share.sources.mid(0, 3)) {
+        const QUrl url(source);
+        if (url.scheme() == "content") continue; // Provider queries belong on the worker.
+        names.append(QFileInfo(url.isLocalFile() ? url.toLocalFile() : source).fileName());
     }
+    const auto count = share.sources.size();
+    const QString summary = count == 1 ? tr("1 selected item") : tr("%1 selected items").arg(count);
+    return names.isEmpty() ? summary : summary + " · " + names.join(", ") + (count > 3 ? tr(" …") : QString());
+}
+
+void GuiBehind::discardPendingShare()
+{
+    if (mPendingShares.isEmpty()) return;
+    mPendingShares.dequeue();
+    emit pendingShareChanged();
 }
 
 void GuiBehind::sendPendingShare()

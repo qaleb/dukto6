@@ -75,7 +75,7 @@ QList<TransferSource> prepareSources(const QStringList &urls, QString *error, co
                 if (cancelled) { *error = QObject::tr("Cancelled"); return {}; }
                 if (!output.flush()) { *error = output.errorString(); return {}; }
                 source.size = output.size(); output.close(); source.stream.reset(); source.location = staged;
-            }
+            } else source.stream.reset(); // Do not hold one provider descriptor per selected file.
             QString original = source.name;
             for (int n = 2; rootNames.contains(source.name); ++n) source.name = QString::number(n) + '-' + original;
             rootNames.insert(source.name); result.append(source); continue;
@@ -100,6 +100,28 @@ QList<TransferSource> prepareSources(const QStringList &urls, QString *error, co
 bool openSource(TransferSource &source, QString *error) {
     if (source.directory) return true;
     if (source.stream && source.stream->isOpen()) return true;
+#ifdef Q_OS_ANDROID
+    if (source.location.startsWith("content:")) {
+        QJniObject context = QNativeInterface::QAndroidApplication::context();
+        const auto metadata = QJniObject::callStaticObjectMethod("idv/coolshou/DuktoBridge", "openSource",
+            "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;", context.object<jobject>(), QJniObject::fromString(source.location).object<jstring>());
+        const auto fields = metadata.toString().split('\n');
+        if (fields.size() != 4) { *error = QObject::tr("The shared file is no longer readable. Share it again."); return false; }
+        const int fd = fields[0].toInt();
+        if (fd < 0 || fields[1].toLongLong() != source.size) {
+            if (fd >= 0) ::close(fd);
+            *error = QObject::tr("The shared file changed. Share it again."); return false;
+        }
+        source.stream = std::make_shared<QFile>();
+        if (!source.stream->open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)) {
+            ::close(fd); *error = QObject::tr("The shared file could not be opened."); return false;
+        }
+        const auto offset = fields[3].toLongLong();
+        if (offset > 0 && !source.stream->seek(offset)) { source.stream.reset(); *error = QObject::tr("This provider's file cannot be read. Save a local copy first."); return false; }
+        ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL) | O_NONBLOCK);
+        return true;
+    }
+#endif
     source.stream = std::make_shared<QFile>(source.location);
     if (!source.stream->open(QIODevice::ReadOnly) || source.stream->size() != source.size) {
         *error = QObject::tr("File changed or is no longer readable: %1. Select it again.").arg(source.name); return false;
